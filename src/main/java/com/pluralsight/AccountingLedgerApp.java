@@ -167,8 +167,7 @@ public class AccountingLedgerApp {
                     displayAllEntries();
                     break;
                 case "D":
-                    System.out.println("Deposits filter (coming soon)");
-                    // displayDeposits();
+                    displayDeposits();
                     break;
                 case "P":
                     System.out.println("Payments filter (coming soon)");
@@ -215,6 +214,47 @@ public class AccountingLedgerApp {
             System.out.println(t);
         }
     }
+
+
+
+    /**
+     * Displays only the deposit entries (positive amounts).
+     */
+    public static void displayDeposits() {
+        System.out.println("\n--- Deposit Entries ---");
+        boolean found = false;
+
+        for (Transaction t : transactions) {
+            if (t.getAmount() > 0) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) {
+            System.out.println("No deposits found.");
+        }
+    }
+
+    /**
+     * Displays only the payment/debit entries (negative amounts).
+     */
+    public static void displayPayments() {
+        System.out.println("\n--- Payment Entries ---");
+        boolean found = false;
+
+        for (Transaction t : transactions) {
+            if (t.getAmount() < 0) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) {
+            System.out.println("No payments found.");
+        }
+    }
+
 
 
 
