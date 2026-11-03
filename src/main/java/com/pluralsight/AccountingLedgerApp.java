@@ -51,8 +51,7 @@ public class AccountingLedgerApp {
                     makePayment();
                     break;
                 case "L":
-                    System.out.println("Ledger selected");
-                    // ledgerScreen();
+                    ledgerScreen();
                     break;
                 case "X":
                     System.out.println("Exiting the application. Goodbye!");
@@ -142,6 +141,81 @@ public class AccountingLedgerApp {
 
         System.out.println("Successfully recorded payment of $" + String.format("%.2f", amount) + "!");
     }
+
+
+    /**
+     * Displays the Ledger Menu for viewing and filtering transactions.
+     */
+    public static void ledgerScreen() {
+        boolean inLedger = true;
+
+        while (inLedger) {
+            System.out.println("\n=======================================");
+            System.out.println("             LEDGER MENU");
+            System.out.println("=======================================");
+            System.out.println(" A) All Entries");
+            System.out.println(" D) Deposits");
+            System.out.println(" P) Payments");
+            System.out.println(" R) Reports");
+            System.out.println(" H) Home (Back)");
+            System.out.print("Your choice: ");
+
+            String choice = scanner.nextLine().trim().toUpperCase();
+
+            switch (choice) {
+                case "A":
+                    displayAllEntries();
+                    break;
+                case "D":
+                    System.out.println("Deposits filter (coming soon)");
+                    // displayDeposits();
+                    break;
+                case "P":
+                    System.out.println("Payments filter (coming soon)");
+                    // displayPayments();
+                    break;
+                case "R":
+                    System.out.println("Reports menu (coming soon)");
+                    // reportsScreen();
+                    break;
+                case "H":
+                    inLedger = false; // Exits the ledger loop, returning to Home Screen
+                    break;
+                default:
+                    System.out.println("Invalid option. Please try again.");
+            }
+        }
+    }
+
+    /**
+     * Displays all transactions sorted from newest to oldest.
+     */
+    public static void displayAllEntries() {
+        System.out.println("\n--- All Entries (Newest First) ---");
+
+        if (transactions.isEmpty()) {
+            System.out.println("No transactions found.");
+            return;
+        }
+
+        // Create a copy of the list so we can sort it without messing up the main memory
+        ArrayList<Transaction> sortedList = new ArrayList<>(transactions);
+
+        // Sort descending by Date, then by Time
+        sortedList.sort((t1, t2) -> {
+            int dateCompare = t2.getDate().compareTo(t1.getDate());
+            if (dateCompare == 0) {
+                return t2.getTime().compareTo(t1.getTime());
+            }
+            return dateCompare;
+        });
+
+        // Print the sorted list
+        for (Transaction t : sortedList) {
+            System.out.println(t);
+        }
+    }
+
 
 
     /**
