@@ -48,8 +48,7 @@ public class AccountingLedgerApp {
                     addDeposit();
                     break;
                 case "P":
-                    System.out.println("Make Payment selected");
-                    // makePayment();
+                    makePayment();
                     break;
                 case "L":
                     System.out.println("Ledger selected");
@@ -101,6 +100,47 @@ public class AccountingLedgerApp {
         saveTransaction(deposit);
 
         System.out.println("Successfully recorded deposit of $" + String.format("%.2f", amount) + "!");
+    }
+
+
+
+    /**
+     * Prompts the user for payment details and saves the transaction as a debit (negative amount).
+     */
+    public static void makePayment() {
+        System.out.println("\n--- Make Payment (Debit) ---");
+        System.out.print("Enter description: ");
+        String description = scanner.nextLine().trim();
+
+        System.out.print("Enter vendor: ");
+        String vendor = scanner.nextLine().trim();
+
+        System.out.print("Enter payment amount: $");
+        double amount = 0;
+        try {
+            amount = Double.parseDouble(scanner.nextLine().trim());
+            if (amount <= 0) {
+                System.out.println("Error: Enter a positive payment amount. It will be deducted automatically. Transaction cancelled.");
+                return;
+            }
+        } catch (NumberFormatException e) {
+            System.out.println("Error: Invalid number format. Transaction cancelled.");
+            return;
+        }
+
+        // Convert the positive amount into a negative value for the ledger
+        double debitAmount = -Math.abs(amount);
+
+        // Automatically capture current date and time
+        LocalDate date = LocalDate.now();
+        LocalTime time = LocalTime.now();
+
+        // Create transaction, add to memory, and save to CSV
+        Transaction payment = new Transaction(date, time, description, vendor, debitAmount);
+        transactions.add(payment);
+        saveTransaction(payment);
+
+        System.out.println("Successfully recorded payment of $" + String.format("%.2f", amount) + "!");
     }
 
 
