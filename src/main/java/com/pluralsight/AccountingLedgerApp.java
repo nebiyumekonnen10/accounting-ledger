@@ -170,12 +170,10 @@ public class AccountingLedgerApp {
                     displayDeposits();
                     break;
                 case "P":
-                    System.out.println("Payments filter (coming soon)");
-                    // displayPayments();
+                    displayPayments();
                     break;
                 case "R":
-                    System.out.println("Reports menu (coming soon)");
-                    // reportsScreen();
+                    reportsScreen();
                     break;
                 case "H":
                     inLedger = false; // Exits the ledger loop, returning to Home Screen
@@ -254,6 +252,60 @@ public class AccountingLedgerApp {
             System.out.println("No payments found.");
         }
     }
+
+
+
+    /**
+     * Displays the Reports Menu for date-based and vendor-based filtering.
+     */
+    public static void reportsScreen() {
+        boolean inReports = true;
+
+        while (inReports) {
+            System.out.println("\n=======================================");
+            System.out.println("             REPORTS MENU");
+            System.out.println("=======================================");
+            System.out.println(" 1) Month to Date");
+            System.out.println(" 2) Previous Month");
+            System.out.println(" 3) Year to Date");
+            System.out.println(" 4) Previous Year");
+            System.out.println(" 5) Search by Vendor");
+            System.out.println(" 0) Back");
+            System.out.print("Your choice: ");
+
+            String choice = scanner.nextLine().trim();
+
+            switch (choice) {
+                case "1":
+                    System.out.println("Month to Date filter (coming soon)");
+                    // filterMonthToDate();
+                    break;
+                case "2":
+                    System.out.println("Previous Month filter (coming soon)");
+                    // filterPreviousMonth();
+                    break;
+                case "3":
+                    System.out.println("Year to Date filter (coming soon)");
+                    // filterYearToDate();
+                    break;
+                case "4":
+                    System.out.println("Previous Year filter (coming soon)");
+                    // filterPreviousYear();
+                    break;
+                case "5":
+                    System.out.println("Search by Vendor (coming soon)");
+                    // filterByVendor();
+                    break;
+                case "0":
+                    inReports = false;
+                    break;
+                default:
+                    System.out.println("Invalid option. Please try again.");
+            }
+        }
+    }
+
+
 
 
 
