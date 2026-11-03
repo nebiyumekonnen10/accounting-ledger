@@ -45,8 +45,7 @@ public class AccountingLedgerApp {
 
             switch (choice) {
                 case "D":
-                    System.out.println("Add Deposit selected");
-                    // addDeposit();
+                    addDeposit();
                     break;
                 case "P":
                     System.out.println("Make Payment selected");
@@ -65,6 +64,45 @@ public class AccountingLedgerApp {
             }
         }
     }
+
+
+    /**
+     * Prompts the user for deposit details and saves the transaction.
+     */
+    public static void addDeposit() {
+        System.out.println("\n--- Add Deposit ---");
+        System.out.print("Enter description: ");
+        String description = scanner.nextLine().trim();
+
+        System.out.print("Enter vendor: ");
+        String vendor = scanner.nextLine().trim();
+
+        System.out.print("Enter deposit amount: $");
+        double amount = 0;
+        try {
+            amount = Double.parseDouble(scanner.nextLine().trim());
+            // Validation: Deposits must be positive
+            if (amount <= 0) {
+                System.out.println("Error: Deposit amount must be greater than zero. Transaction cancelled.");
+                return;
+            }
+        } catch (NumberFormatException e) {
+            System.out.println("Error: Invalid number format. Transaction cancelled.");
+            return;
+        }
+
+        // Automatically capture current date and time
+        LocalDate date = LocalDate.now();
+        LocalTime time = LocalTime.now();
+
+        // Create transaction, add to memory, and save to CSV
+        Transaction deposit = new Transaction(date, time, description, vendor, amount);
+        transactions.add(deposit);
+        saveTransaction(deposit);
+
+        System.out.println("Successfully recorded deposit of $" + String.format("%.2f", amount) + "!");
+    }
+
 
     /**
      * Loads transactions from transactions.csv into the global ArrayList using BufferedReader.
