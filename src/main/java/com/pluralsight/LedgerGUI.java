@@ -58,9 +58,19 @@ public class LedgerGUI extends Application {
         root.setStyle("-fx-background-color: #07090e;");
 
         root.setLeft(buildSidebar());
-        root.setCenter(buildMainWorkspace());
 
-        Scene scene = new Scene(root, 1360, 840);
+        // Wrap the main workspace in a ScrollPane for optimal screen compatibility on smaller laptops
+        ScrollPane scrollPane = new ScrollPane(buildMainWorkspace());
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background: #07090e; -fx-background-color: #07090e;");
+        root.setCenter(scrollPane);
+
+        // Dynamically compute screen dimensions (respecting taskbars and small displays)
+        javafx.geometry.Rectangle2D screenBounds = javafx.stage.Screen.getPrimary().getVisualBounds();
+        double appWidth = Math.min(1280, screenBounds.getWidth() * 0.92);
+        double appHeight = Math.min(740, screenBounds.getHeight() * 0.92);
+
+        Scene scene = new Scene(root, appWidth, appHeight);
         scene.getStylesheets().add(createDarkStylesheet());
 
         Image logoImg = loadLogoImage();
@@ -70,6 +80,10 @@ public class LedgerGUI extends Application {
 
         primaryStage.setTitle("VisualTizita Media & Event Studio — Accounting Ledger Pro");
         primaryStage.setScene(scene);
+
+        // Center window on screen
+        primaryStage.setX((screenBounds.getWidth() - appWidth) / 2);
+        primaryStage.setY((screenBounds.getHeight() - appHeight) / 2);
         primaryStage.show();
 
         showAllEntries();
@@ -98,7 +112,7 @@ public class LedgerGUI extends Application {
     private VBox buildSidebar() {
         VBox sidebar = new VBox(10);
         sidebar.setPadding(new Insets(18, 16, 18, 16));
-        sidebar.setPrefWidth(275);
+        sidebar.setPrefWidth(270);
         sidebar.setStyle("-fx-background-color: #000000; -fx-border-color: #26221a; -fx-border-width: 0 1 0 0;");
 
         // Brand Logo Box
@@ -109,7 +123,7 @@ public class LedgerGUI extends Application {
         Image logoImg = loadLogoImage();
         if (logoImg != null) {
             ImageView logoView = new ImageView(logoImg);
-            logoView.setFitWidth(210);
+            logoView.setFitWidth(200);
             logoView.setPreserveRatio(true);
             logoView.setSmooth(true);
             brandBox.getChildren().add(logoView);
@@ -226,7 +240,7 @@ public class LedgerGUI extends Application {
         tableHeaderBar.getChildren().addAll(activeViewTitle, headerSpacer, hintLabel);
 
         TableView<Transaction> table = buildTransactionTable();
-        VBox.setVgrow(table, Priority.ALWAYS);
+        table.setPrefHeight(380); // Ensure consistent initial height inside scroll view
 
         statusFooter = new Label("Ready — connected to transactions.csv");
         statusFooter.setTextFill(Color.web("#9ca3af"));
@@ -242,7 +256,6 @@ public class LedgerGUI extends Application {
         analyticsContainer.setPadding(new Insets(24));
         analyticsTab.setContent(analyticsContainer);
 
-        // Refresh analytics when switching tabs
         tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
             if (newTab == analyticsTab) {
                 refreshAnalyticsView();
@@ -300,8 +313,8 @@ public class LedgerGUI extends Application {
 
         HBox.setHgrow(descSearchField, Priority.ALWAYS);
         HBox.setHgrow(vendorSearchField, Priority.ALWAYS);
-        startDateField.setPrefWidth(170);
-        endDateField.setPrefWidth(170);
+        startDateField.setPrefWidth(160);
+        endDateField.setPrefWidth(160);
 
         descSearchField.textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
         vendorSearchField.textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
@@ -313,8 +326,8 @@ public class LedgerGUI extends Application {
 
         minAmountField = createStyledTextField("Min Amount ($)");
         maxAmountField = createStyledTextField("Max Amount ($)");
-        minAmountField.setPrefWidth(150);
-        maxAmountField.setPrefWidth(150);
+        minAmountField.setPrefWidth(140);
+        maxAmountField.setPrefWidth(140);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -396,7 +409,6 @@ public class LedgerGUI extends Application {
             }
         });
 
-        // Right-Click Context Menu & Double-Click Receipt
         table.setRowFactory(tv -> {
             TableRow<Transaction> row = new TableRow<>();
 
@@ -461,10 +473,6 @@ public class LedgerGUI extends Application {
         receipt.showAndWait();
     }
 
-    // =========================================================================
-    // ANALYTICS TAB RENDERING
-    // =========================================================================
-
     private void refreshAnalyticsView() {
         analyticsContainer.getChildren().clear();
 
@@ -478,7 +486,6 @@ public class LedgerGUI extends Application {
 
         VBox headerBox = new VBox(4, title, subtitle);
 
-        // Group by Vendor
         Map<String, Double> vendorTotals = new HashMap<>();
         double totalVolume = 0;
         for (Transaction t : allTransactions) {
@@ -525,10 +532,6 @@ public class LedgerGUI extends Application {
 
         analyticsContainer.getChildren().addAll(headerBox, new Separator(), breakdownCard);
     }
-
-    // =========================================================================
-    // FILTER & SORT LOGIC
-    // =========================================================================
 
     private List<Transaction> getSortedNewestFirst(List<Transaction> source) {
         return source.stream()
@@ -624,7 +627,7 @@ public class LedgerGUI extends Application {
             updateView("Custom Search Results", results);
             statusFooter.setText("Custom search matched " + results.size() + " transaction(s).");
         } catch (Exception ex) {
-            // Ignore live typing parse errors until valid input is given
+            // Ignore live typing parse errors
         }
     }
 
@@ -670,10 +673,6 @@ public class LedgerGUI extends Application {
             }
         }
     }
-
-    // =========================================================================
-    // ADD DEPOSIT / MAKE PAYMENT MODAL
-    // =========================================================================
 
     private void openTransactionModal(boolean isDeposit) {
         Dialog<Transaction> dialog = new Dialog<>();
@@ -737,10 +736,6 @@ public class LedgerGUI extends Application {
         });
     }
 
-    // =========================================================================
-    // STANDALONE CSV I/O
-    // =========================================================================
-
     private void loadFromCsv() {
         allTransactions.clear();
         File file = new File("transactions.csv");
@@ -786,10 +781,6 @@ public class LedgerGUI extends Application {
             showAlert("File Save Error", "Could not update transactions.csv: " + e.getMessage());
         }
     }
-
-    // =========================================================================
-    // UI STYLING HELPERS
-    // =========================================================================
 
     private VBox createKpiCard(String labelText, Label valueLabel, String accentHex) {
         VBox card = new VBox(6);
