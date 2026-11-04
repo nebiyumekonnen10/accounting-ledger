@@ -277,23 +277,18 @@ public class AccountingLedgerApp {
 
             switch (choice) {
                 case "1":
-                    System.out.println("Month to Date filter (coming soon)");
-                    // filterMonthToDate();
+                    filterMonthToDate();
                     break;
                 case "2":
-                    System.out.println("Previous Month filter (coming soon)");
-                    // filterPreviousMonth();
+                    filterPreviousMonth();
                     break;
                 case "3":
-                    System.out.println("Year to Date filter (coming soon)");
-                    // filterYearToDate();
+                    filterYearToDate();
                     break;
                 case "4":
-                    System.out.println("Previous Year filter (coming soon)");
-                    // filterPreviousYear();
+                    filterPreviousYear();
                     break;
                 case "5":
-                    System.out.println("Search by Vendor (coming soon)");
                     filterByVendor();
                     break;
                 case "0":
@@ -318,7 +313,6 @@ public class AccountingLedgerApp {
         System.out.println("\nResults for vendor: \"" + vendorSearch + "\"");
 
         for (Transaction t : transactions) {
-            // Using equalsIgnoreCase
             if (t.getVendor().equalsIgnoreCase(vendorSearch)) {
                 System.out.println(t);
                 found = true;
@@ -332,7 +326,77 @@ public class AccountingLedgerApp {
 
 
 
+    /**
+     * Displays transactions from the current month and year.
+     */
+    public static void filterMonthToDate() {
+        System.out.println("\n--- Month to Date ---");
+        LocalDate today = LocalDate.now();
+        boolean found = false;
 
+        for (Transaction t : transactions) {
+            if (t.getDate().getYear() == today.getYear() && t.getDate().getMonth() == today.getMonth()) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) System.out.println("No transactions found for this month.");
+    }
+
+    /**
+     * Displays transactions from the previous month.
+     */
+    public static void filterPreviousMonth() {
+        System.out.println("\n--- Previous Month ---");
+        LocalDate previousMonthDate = LocalDate.now().minusMonths(1);
+        boolean found = false;
+
+        for (Transaction t : transactions) {
+            if (t.getDate().getYear() == previousMonthDate.getYear() && t.getDate().getMonth() == previousMonthDate.getMonth()) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) System.out.println("No transactions found for the previous month.");
+    }
+
+    /**
+     * Displays transactions from the current year.
+     */
+    public static void filterYearToDate() {
+        System.out.println("\n--- Year to Date ---");
+        int currentYear = LocalDate.now().getYear();
+        boolean found = false;
+
+        for (Transaction t : transactions) {
+            if (t.getDate().getYear() == currentYear) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) System.out.println("No transactions found for this year.");
+    }
+
+    /**
+     * Displays transactions from the previous year.
+     */
+    public static void filterPreviousYear() {
+        System.out.println("\n--- Previous Year ---");
+        int previousYear = LocalDate.now().getYear() - 1;
+        boolean found = false;
+
+        for (Transaction t : transactions) {
+            if (t.getDate().getYear() == previousYear) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) System.out.println("No transactions found for the previous year.");
+    }
 
 
     /**
