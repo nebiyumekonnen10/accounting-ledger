@@ -294,7 +294,7 @@ public class AccountingLedgerApp {
                     break;
                 case "5":
                     System.out.println("Search by Vendor (coming soon)");
-                    // filterByVendor();
+                    filterByVendor();
                     break;
                 case "0":
                     inReports = false;
@@ -302,6 +302,31 @@ public class AccountingLedgerApp {
                 default:
                     System.out.println("Invalid option. Please try again.");
             }
+        }
+    }
+
+
+    /**
+     * Prompts the user for a vendor name and displays all matching transactions (case-insensitive).
+     */
+    public static void filterByVendor() {
+        System.out.println("\n--- Search by Vendor ---");
+        System.out.print("Enter vendor name to search: ");
+        String vendorSearch = scanner.nextLine().trim();
+
+        boolean found = false;
+        System.out.println("\nResults for vendor: \"" + vendorSearch + "\"");
+
+        for (Transaction t : transactions) {
+            // Using equalsIgnoreCase
+            if (t.getVendor().equalsIgnoreCase(vendorSearch)) {
+                System.out.println(t);
+                found = true;
+            }
+        }
+
+        if (!found) {
+            System.out.println("No transactions found for vendor: " + vendorSearch);
         }
     }
 
