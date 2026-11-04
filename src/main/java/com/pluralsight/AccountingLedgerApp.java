@@ -270,6 +270,7 @@ public class AccountingLedgerApp {
             System.out.println(" 3) Year to Date");
             System.out.println(" 4) Previous Year");
             System.out.println(" 5) Search by Vendor");
+            System.out.println(" 6) Custom Search");
             System.out.println(" 0) Back");
             System.out.print("Your choice: ");
 
@@ -290,6 +291,9 @@ public class AccountingLedgerApp {
                     break;
                 case "5":
                     filterByVendor();
+                    break;
+                case "6":
+                    customSearch();
                     break;
                 case "0":
                     inReports = false;
@@ -396,6 +400,71 @@ public class AccountingLedgerApp {
         }
 
         if (!found) System.out.println("No transactions found for the previous year.");
+    }
+
+
+
+    /**
+     * Prompts the user for multiple optional filters (Dates, Strings, Amounts).
+     * If the user leaves a prompt blank, that filter is ignored.
+     */
+    public static void customSearch() {
+        System.out.println("\n--- Custom Search ---");
+        System.out.println("(Press ENTER to skip any filter)");
+
+        try {
+            System.out.print("Start Date (yyyy-MM-dd): ");
+            String startDateInput = scanner.nextLine().trim();
+            LocalDate startDate = startDateInput.isEmpty() ? null : LocalDate.parse(startDateInput);
+
+            System.out.print("End Date (yyyy-MM-dd): ");
+            String endDateInput = scanner.nextLine().trim();
+            LocalDate endDate = endDateInput.isEmpty() ? null : LocalDate.parse(endDateInput);
+
+            System.out.print("Description: ");
+            String descInput = scanner.nextLine().trim().toLowerCase();
+
+            System.out.print("Vendor: ");
+            String vendorInput = scanner.nextLine().trim().toLowerCase();
+
+            System.out.print("Minimum Amount: ");
+            String minAmountInput = scanner.nextLine().trim();
+            Double minAmount = minAmountInput.isEmpty() ? null : Double.parseDouble(minAmountInput);
+
+            System.out.print("Maximum Amount: ");
+            String maxAmountInput = scanner.nextLine().trim();
+            Double maxAmount = maxAmountInput.isEmpty() ? null : Double.parseDouble(maxAmountInput);
+
+            System.out.println("\n--- Search Results ---");
+            boolean found = false;
+
+            for (Transaction t : transactions) {
+                boolean matches = true;
+
+                // Date Filters
+                if (startDate != null && t.getDate().isBefore(startDate)) matches = false;
+                if (endDate != null && t.getDate().isAfter(endDate)) matches = false;
+
+                if (!descInput.isEmpty() && !t.getDescription().toLowerCase().contains(descInput)) matches = false;
+                if (!vendorInput.isEmpty() && !t.getVendor().toLowerCase().contains(vendorInput)) matches = false;
+
+                // Amount Filters
+                if (minAmount != null && t.getAmount() < minAmount) matches = false;
+                if (maxAmount != null && t.getAmount() > maxAmount) matches = false;
+
+                if (matches) {
+                    System.out.println(t);
+                    found = true;
+                }
+            }
+
+            if (!found) {
+                System.out.println("No transactions matched your search criteria.");
+            }
+
+        } catch (Exception e) {
+            System.out.println("Error: Invalid input format. Please ensure dates use yyyy-MM-dd and amounts are numbers.");
+        }
     }
 
 
