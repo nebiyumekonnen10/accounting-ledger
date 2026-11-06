@@ -93,7 +93,7 @@ public class AccountingLedgerApp {
         LocalDate date = LocalDate.now();
         LocalTime time = LocalTime.now();
 
-        // Create transaction, add to memory, and save to CSV
+        // Create transaction
         Transaction deposit = new Transaction(date, time, description, vendor, amount);
         transactions.add(deposit);
         saveTransaction(deposit);

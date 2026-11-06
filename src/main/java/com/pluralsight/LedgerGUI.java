@@ -6,12 +6,16 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.FileChooser;
@@ -30,23 +34,47 @@ public class LedgerGUI extends Application {
 
     private final List<Transaction> allTransactions = new ArrayList<>();
     private final ObservableList<Transaction> displayedTransactions = FXCollections.observableArrayList();
+    private Map<Transaction, Double> runningBalanceMap = new IdentityHashMap<>();
+
+    private BorderPane rootPane;
+    private ScrollPane ledgerSidebarNode;
+    private ScrollPane analyticsSidebarNode;
+    private StackPane workspaceStack;
+
+    private Node ledgerViewNode;
+    private ScrollPane analyticsViewNode;
+    private ScrollPane cfoViewNode;
+
+    private Button segBtnLedger;
+    private Button segBtnAnalytics;
+    private Button segBtnCfo;
+    private final List<Button> sidebarNavButtons = new ArrayList<>();
 
     private Label totalBalanceValue;
+    private Label totalBalanceSub;
     private Label totalDepositsValue;
+    private Label totalDepositsSub;
     private Label totalPaymentsValue;
+    private Label totalPaymentsSub;
     private Label activeViewTitle;
+    private Label recordCountBadge;
     private Label statusFooter;
     private ProgressBar cashFlowBar;
     private Label cashFlowRatioLabel;
 
-    private TextField startDateField;
-    private TextField endDateField;
+    private DatePicker startDatePicker;
+    private DatePicker endDatePicker;
     private TextField descSearchField;
-    private TextField vendorSearchField;
+    private ComboBox<String> vendorComboField;
     private TextField minAmountField;
     private TextField maxAmountField;
 
     private VBox analyticsContainer;
+    private VBox cfoToolsContainer;
+    private double taxRatePercent = 20.0;
+    private double revenueGoal = 20000.0;
+    private String analyticsScope = "All Historical Data";
+    private boolean analyticsSidebarHidden = false;
     private Stage mainStage;
 
     @Override
@@ -54,168 +82,221 @@ public class LedgerGUI extends Application {
         this.mainStage = primaryStage;
         loadFromCsv();
 
-        BorderPane root = new BorderPane();
-        root.setStyle("-fx-background-color: #07090e;");
+        rootPane = new BorderPane();
+        rootPane.setStyle("-fx-background-color: #0B0F19;");
 
-        root.setLeft(buildSidebar());
+        ledgerSidebarNode = buildEnterpriseSidebar();
+        rebuildAnalyticsSidebar();
 
-        // Wrap the main workspace in a ScrollPane for optimal screen compatibility on smaller laptops
-        ScrollPane scrollPane = new ScrollPane(buildMainWorkspace());
-        scrollPane.setFitToWidth(true);
-        scrollPane.setStyle("-fx-background: #07090e; -fx-background-color: #07090e;");
-        root.setCenter(scrollPane);
+        rootPane.setLeft(ledgerSidebarNode);
+        rootPane.setCenter(buildEnterpriseWorkspace());
 
-        // Dynamically compute screen dimensions (respecting taskbars and small displays)
         javafx.geometry.Rectangle2D screenBounds = javafx.stage.Screen.getPrimary().getVisualBounds();
-        double appWidth = Math.min(1280, screenBounds.getWidth() * 0.92);
-        double appHeight = Math.min(740, screenBounds.getHeight() * 0.92);
+        double appWidth = Math.min(1380, screenBounds.getWidth() * 0.95);
+        double appHeight = Math.min(820, screenBounds.getHeight() * 0.93);
 
-        Scene scene = new Scene(root, appWidth, appHeight);
-        scene.getStylesheets().add(createDarkStylesheet());
+        Scene scene = new Scene(rootPane, appWidth, appHeight);
+        scene.getStylesheets().add(createEnterpriseStylesheet());
 
         Image logoImg = loadLogoImage();
         if (logoImg != null) {
             primaryStage.getIcons().add(logoImg);
         }
 
-        primaryStage.setTitle("VisualTizita Media & Event Studio — Accounting Ledger Pro");
+        primaryStage.setTitle("VisualTizita Studio — Financial OS");
         primaryStage.setScene(scene);
-
-        // Center window on screen
         primaryStage.setX((screenBounds.getWidth() - appWidth) / 2);
         primaryStage.setY((screenBounds.getHeight() - appHeight) / 2);
-        primaryStage.show();
 
         showAllEntries();
+
+        StudioSplashScreen.show(null, primaryStage::show);
     }
 
-    private Image loadLogoImage() {
-        String[] candidatePaths = {
-                "logo.jpg",
-                "Visual Tizita Logo 2.jpg",
-                "src/main/resources/logo.jpg",
-                "src/main/resources/Visual Tizita Logo 2.jpg"
-        };
-        for (String path : candidatePaths) {
-            File f = new File(path);
-            if (f.exists()) {
-                return new Image(f.toURI().toString());
-            }
-        }
-        InputStream stream = getClass().getResourceAsStream("/logo.jpg");
-        if (stream != null) {
-            return new Image(stream);
-        }
-        return null;
+    private void rebuildAnalyticsSidebar() {
+        analyticsSidebarNode = StudioProFeatures.buildAnalyticsSidebar(
+                loadLogoImage(),
+                taxRatePercent,
+                revenueGoal,
+                analyticsScope,
+                newRate -> {
+                    taxRatePercent = newRate;
+                    refreshAnalyticsTab();
+                    refreshCfoToolsTab();
+                },
+                newGoal -> {
+                    revenueGoal = newGoal;
+                    refreshAnalyticsTab();
+                },
+                newScope -> {
+                    analyticsScope = newScope;
+                    refreshAnalyticsTab();
+                },
+                () -> StudioProFeatures.generateExecutiveReportHtml(allTransactions, taxRatePercent),
+                () -> statusFooter.setText(StudioProFeatures.createCsvBackupSnapshot()),
+                this::toggleAnalyticsSidebar,
+                () -> switchWorkspacePage(0)
+        );
     }
 
-    private VBox buildSidebar() {
-        VBox sidebar = new VBox(10);
-        sidebar.setPadding(new Insets(18, 16, 18, 16));
-        sidebar.setPrefWidth(270);
-        sidebar.setStyle("-fx-background-color: #000000; -fx-border-color: #26221a; -fx-border-width: 0 1 0 0;");
+    private void toggleAnalyticsSidebar() {
+        analyticsSidebarHidden = !analyticsSidebarHidden;
+        rootPane.setLeft(analyticsSidebarHidden ? null : analyticsSidebarNode);
+        refreshAnalyticsTab();
+    }
 
-        // Brand Logo Box
-        VBox brandBox = new VBox(6);
-        brandBox.setAlignment(Pos.CENTER);
-        brandBox.setPadding(new Insets(2, 0, 10, 0));
+    private ScrollPane buildEnterpriseSidebar() {
+        VBox sidebar = new VBox(6);
+        sidebar.setPadding(new Insets(20, 16, 20, 16));
+        sidebar.setPrefWidth(248);
+        sidebar.setStyle("-fx-background-color: #070A12;");
+
+        // Brand Identity Card with Circular Gold-Ringed Avatar
+        HBox brandHeader = new HBox(12);
+        brandHeader.setAlignment(Pos.CENTER_LEFT);
+        brandHeader.setPadding(new Insets(6, 8, 14, 8));
+        brandHeader.setStyle("-fx-background-color: #0F1626; -fx-background-radius: 12; -fx-border-color: rgba(212,175,55,0.22); -fx-border-radius: 12;");
 
         Image logoImg = loadLogoImage();
         if (logoImg != null) {
             ImageView logoView = new ImageView(logoImg);
-            logoView.setFitWidth(200);
-            logoView.setPreserveRatio(true);
+            logoView.setFitWidth(46);
+            logoView.setFitHeight(46);
             logoView.setSmooth(true);
-            brandBox.getChildren().add(logoView);
-        } else {
-            Label brandTitle = new Label("VISUAL TIZITA");
-            brandTitle.setFont(Font.font("Segoe UI", FontWeight.EXTRA_BOLD, 20));
-            brandTitle.setTextFill(Color.web("#d4af37"));
-            Label brandTag = new Label("Memories that last forever");
-            brandTag.setFont(Font.font("Segoe UI", 11));
-            brandTag.setTextFill(Color.web("#9ca3af"));
-            brandBox.getChildren().addAll(brandTitle, brandTag);
+            Circle clip = new Circle(23, 23, 23);
+            logoView.setClip(clip);
+
+            StackPane avatarRing = new StackPane(logoView);
+            avatarRing.setPrefSize(50, 50);
+            avatarRing.setStyle("-fx-background-color: #D4AF37; -fx-background-radius: 25; -fx-padding: 2;");
+            brandHeader.getChildren().add(avatarRing);
         }
 
-        Label studioBadge = new Label("STUDIO ACCOUNTING LEDGER");
-        studioBadge.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
-        studioBadge.setTextFill(Color.web("#d4af37"));
-        brandBox.getChildren().add(studioBadge);
+        VBox brandTitles = new VBox(2);
+        Label brandTitle = new Label("VisualTizita");
+        brandTitle.setFont(Font.font("Segoe UI", FontWeight.EXTRA_BOLD, 15));
+        brandTitle.setTextFill(Color.web("#F8FAFC"));
 
-        Button btnDeposit = createActionButton("+ Add Deposit", "#10b981", "#059669");
+        Label brandSub = new Label("FINTECH LEDGER OS");
+        brandSub.setFont(Font.font("Segoe UI", FontWeight.BOLD, 9));
+        brandSub.setTextFill(Color.web("#D4AF37"));
+        brandTitles.getChildren().addAll(brandTitle, brandSub);
+        brandHeader.getChildren().add(brandTitles);
+
+        // Sleek Action Buttons
+        HBox quickActions = new HBox(8);
+        quickActions.setPadding(new Insets(8, 0, 6, 0));
+        Button btnDeposit = createPrimaryCtaButton("＋ Deposit", true);
         btnDeposit.setOnAction(e -> openTransactionModal(true));
 
-        Button btnPayment = createActionButton("- Make Payment", "#ef4444", "#dc2626");
+        Button btnPayment = createPrimaryCtaButton("－ Payment", false);
         btnPayment.setOnAction(e -> openTransactionModal(false));
+        HBox.setHgrow(btnDeposit, Priority.ALWAYS);
+        HBox.setHgrow(btnPayment, Priority.ALWAYS);
+        quickActions.getChildren().addAll(btnDeposit, btnPayment);
 
         Label ledgerHeader = createSectionHeader("LEDGER VIEWS");
-        Button btnAll = createNavButton("All Entries (Newest)");
-        btnAll.setOnAction(e -> showAllEntries());
+        Button btnAll = createNavButton("◈   All Transactions", true);
+        btnAll.setOnAction(e -> { setActiveNav(btnAll); showAllEntries(); });
 
-        Button btnDeposits = createNavButton("Deposits Only");
-        btnDeposits.setOnAction(e -> showDepositsOnly());
+        Button btnDeposits = createNavButton("↗   Inbound Deposits", false);
+        btnDeposits.setOnAction(e -> { setActiveNav(btnDeposits); showDepositsOnly(); });
 
-        Button btnPayments = createNavButton("Payments Only");
-        btnPayments.setOnAction(e -> showPaymentsOnly());
+        Button btnPayments = createNavButton("↘   Outbound Payments", false);
+        btnPayments.setOnAction(e -> { setActiveNav(btnPayments); showPaymentsOnly(); });
 
-        Label reportsHeader = createSectionHeader("TIME & VENDOR REPORTS");
-        Button btnMTD = createNavButton("Month to Date (MTD)");
-        btnMTD.setOnAction(e -> filterMonthToDate());
+        Label reportsHeader = createSectionHeader("FINANCIAL PERIODS");
+        Button btnMTD = createNavButton("◷   Month to Date (MTD)", false);
+        btnMTD.setOnAction(e -> { setActiveNav(btnMTD); filterMonthToDate(); });
 
-        Button btnPrevMonth = createNavButton("Previous Month");
-        btnPrevMonth.setOnAction(e -> filterPreviousMonth());
+        Button btnPrevMonth = createNavButton("◴   Previous Month", false);
+        btnPrevMonth.setOnAction(e -> { setActiveNav(btnPrevMonth); filterPreviousMonth(); });
 
-        Button btnYTD = createNavButton("Year to Date (YTD)");
-        btnYTD.setOnAction(e -> filterYearToDate());
+        Button btnYTD = createNavButton("◵   Year to Date (YTD)", false);
+        btnYTD.setOnAction(e -> { setActiveNav(btnYTD); filterYearToDate(); });
 
-        Button btnPrevYear = createNavButton("Previous Year");
-        btnPrevYear.setOnAction(e -> filterPreviousYear());
+        Button btnPrevYear = createNavButton("◶   Previous Year", false);
+        btnPrevYear.setOnAction(e -> { setActiveNav(btnPrevYear); filterPreviousYear(); });
 
-        Region spacer = new Region();
-        VBox.setVgrow(spacer, Priority.ALWAYS);
-
-        Button btnExport = createNavButton("Export Current View (.csv)");
+        Label toolsHeader = createSectionHeader("DATA & STORAGE");
+        Button btnExport = createNavButton("⇩   Export Current CSV", false);
         btnExport.setOnAction(e -> exportCurrentViewToCsv());
 
-        Button btnReload = createNavButton("Reload CSV from Disk");
+        Button btnReload = createNavButton("↻   Sync from Disk", false);
         btnReload.setOnAction(e -> {
             loadFromCsv();
+            setActiveNav(btnAll);
             showAllEntries();
-            statusFooter.setText("Reloaded transactions.csv from disk.");
+            statusFooter.setText("Synced transactions.csv from disk.");
         });
 
         sidebar.getChildren().addAll(
-                brandBox,
-                btnDeposit, btnPayment,
-                new Separator(),
+                brandHeader,
+                quickActions,
+                createSubtleDivider(),
                 ledgerHeader, btnAll, btnDeposits, btnPayments,
-                new Separator(),
+                createSubtleDivider(),
                 reportsHeader, btnMTD, btnPrevMonth, btnYTD, btnPrevYear,
-                spacer, btnExport, btnReload
+                createSubtleDivider(),
+                toolsHeader, btnExport, btnReload
         );
 
-        return sidebar;
+        ScrollPane scrollSidebar = new ScrollPane(sidebar);
+        scrollSidebar.setFitToWidth(true);
+        scrollSidebar.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollSidebar.getStyleClass().add("edge-to-edge-scroll");
+        scrollSidebar.setStyle("-fx-background: #070A12; -fx-background-color: #070A12; -fx-border-color: #161F30; -fx-border-width: 0 1 0 0;");
+        scrollSidebar.setPrefWidth(258);
+        return scrollSidebar;
     }
 
-    private TabPane buildMainWorkspace() {
-        TabPane tabPane = new TabPane();
-        tabPane.setStyle("-fx-background-color: #07090e;");
+    private BorderPane buildEnterpriseWorkspace() {
+        BorderPane workspace = new BorderPane();
+        workspace.setStyle("-fx-background-color: #0B0F19;");
 
-        // Tab 1: Ledger Table & Search Workspace
-        Tab ledgerTab = new Tab("Ledger & Search");
-        ledgerTab.setClosable(false);
+        // Top Segmented Executive Header Bar (Replaces ugly browser tabs)
+        HBox topHeader = new HBox(16);
+        topHeader.setAlignment(Pos.CENTER_LEFT);
+        topHeader.setPadding(new Insets(14, 26, 14, 26));
+        topHeader.setStyle("-fx-background-color: #0B0F19; -fx-border-color: #161F30; -fx-border-width: 0 0 1 0;");
 
-        VBox main = new VBox(14);
-        main.setPadding(new Insets(18, 24, 16, 24));
+        HBox segmentedBar = new HBox(4);
+        segmentedBar.setPadding(new Insets(4));
+        segmentedBar.setStyle("-fx-background-color: #070A12; -fx-background-radius: 10; -fx-border-color: #1A2438; -fx-border-radius: 10;");
+
+        segBtnLedger = createSegmentButton("Ledger & Search", true);
+        segBtnAnalytics = createSegmentButton("Executive Analytics", false);
+        segBtnCfo = createSegmentButton("CFO Suite & Audit", false);
+
+        segBtnLedger.setOnAction(e -> switchWorkspacePage(0));
+        segBtnAnalytics.setOnAction(e -> switchWorkspacePage(1));
+        segBtnCfo.setOnAction(e -> switchWorkspacePage(2));
+
+        segmentedBar.getChildren().addAll(segBtnLedger, segBtnAnalytics, segBtnCfo);
+
+        Region topSpacer = new Region();
+        HBox.setHgrow(topSpacer, Priority.ALWAYS);
+
+        Label liveStatusPill = new Label("●  LIVE CSV SYNC");
+        liveStatusPill.setStyle("-fx-background-color: rgba(16,185,129,0.12); -fx-text-fill: #34D399; -fx-font-weight: bold; -fx-font-size: 10px; -fx-padding: 5 12; -fx-background-radius: 20; -fx-border-color: rgba(52,211,153,0.3); -fx-border-radius: 20;");
+
+        topHeader.getChildren().addAll(segmentedBar, topSpacer, liveStatusPill);
+
+        // Page 1: Ledger Workspace (No outer ScrollPane so TableView scrolls natively without double scrollbars)
+        VBox mainLedgerBox = new VBox(14);
+        mainLedgerBox.setPadding(new Insets(18, 26, 16, 26));
 
         HBox kpiRow = new HBox(16);
         totalBalanceValue = new Label("$0.00");
+        totalBalanceSub = new Label("Available Studio Equity");
         totalDepositsValue = new Label("+$0.00");
+        totalDepositsSub = new Label("0 Inbound Credits");
         totalPaymentsValue = new Label("-$0.00");
+        totalPaymentsSub = new Label("0 Outbound Debits");
 
-        VBox balanceCard = createKpiCard("NET STUDIO BALANCE", totalBalanceValue, "#d4af37");
-        VBox depositCard = createKpiCard("TOTAL DEPOSITS (CREDITS)", totalDepositsValue, "#34d399");
-        VBox paymentCard = createKpiCard("TOTAL PAYMENTS (DEBITS)", totalPaymentsValue, "#f87171");
+        VBox balanceCard = createExecutiveKpiCard("NET STUDIO BALANCE", totalBalanceValue, totalBalanceSub, "#D4AF37", "rgba(212,175,55,0.14)");
+        VBox depositCard = createExecutiveKpiCard("GROSS INBOUND CREDITS", totalDepositsValue, totalDepositsSub, "#34D399", "rgba(52,211,153,0.14)");
+        VBox paymentCard = createExecutiveKpiCard("TOTAL OUTBOUND DEBITS", totalPaymentsValue, totalPaymentsSub, "#F87171", "rgba(248,113,113,0.14)");
         HBox.setHgrow(balanceCard, Priority.ALWAYS);
         HBox.setHgrow(depositCard, Priority.ALWAYS);
         HBox.setHgrow(paymentCard, Priority.ALWAYS);
@@ -224,187 +305,375 @@ public class LedgerGUI extends Application {
         VBox cashFlowBox = buildCashFlowBar();
         VBox searchCard = buildCustomSearchPanel();
 
-        HBox tableHeaderBar = new HBox(12);
+        HBox tableHeaderBar = new HBox(10);
         tableHeaderBar.setAlignment(Pos.CENTER_LEFT);
-        activeViewTitle = new Label("All Entries — Newest First");
-        activeViewTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 15));
-        activeViewTitle.setTextFill(Color.web("#f3f4f6"));
+        activeViewTitle = new Label("All Transactions");
+        activeViewTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+        activeViewTitle.setTextFill(Color.web("#F8FAFC"));
+
+        recordCountBadge = new Label("0 records");
+        recordCountBadge.setStyle("-fx-background-color: #162032; -fx-text-fill: #D4AF37; -fx-font-weight: bold; -fx-font-size: 11px; -fx-padding: 3 10; -fx-background-radius: 12;");
 
         Region headerSpacer = new Region();
         HBox.setHgrow(headerSpacer, Priority.ALWAYS);
 
-        Label hintLabel = new Label("Tip: Right-click any row to Delete  |  Double-click to View Receipt");
+        Label hintLabel = new Label("Right-click row: Edit / Printable Invoice / Delete   •   Double-click: Voucher");
         hintLabel.setFont(Font.font("Segoe UI", 11));
-        hintLabel.setTextFill(Color.web("#9ca3af"));
+        hintLabel.setTextFill(Color.web("#64748B"));
 
-        tableHeaderBar.getChildren().addAll(activeViewTitle, headerSpacer, hintLabel);
+        tableHeaderBar.getChildren().addAll(activeViewTitle, recordCountBadge, headerSpacer, hintLabel);
 
         TableView<Transaction> table = buildTransactionTable();
-        table.setPrefHeight(380); // Ensure consistent initial height inside scroll view
+        VBox.setVgrow(table, Priority.ALWAYS);
 
-        statusFooter = new Label("Ready — connected to transactions.csv");
-        statusFooter.setTextFill(Color.web("#9ca3af"));
-        statusFooter.setFont(Font.font("Segoe UI", 12));
+        statusFooter = new Label("Connected to local ledger storage (transactions.csv)");
+        statusFooter.setTextFill(Color.web("#64748B"));
+        statusFooter.setFont(Font.font("Segoe UI", 11));
 
-        main.getChildren().addAll(kpiRow, cashFlowBox, searchCard, tableHeaderBar, table, statusFooter);
-        ledgerTab.setContent(main);
+        mainLedgerBox.getChildren().addAll(kpiRow, cashFlowBox, searchCard, tableHeaderBar, table, statusFooter);
+        ledgerViewNode = mainLedgerBox;
 
-        // Tab 2: Visual Studio Analytics
-        Tab analyticsTab = new Tab("Studio Analytics & Vendor Breakdown");
-        analyticsTab.setClosable(false);
-        analyticsContainer = new VBox(16);
-        analyticsContainer.setPadding(new Insets(24));
-        analyticsTab.setContent(analyticsContainer);
+        // Page 2: Analytics Dashboard
+        analyticsContainer = new VBox(18);
+        analyticsContainer.setPadding(new Insets(20, 26, 26, 26));
+        analyticsViewNode = wrapInCleanScrollPane(analyticsContainer);
 
-        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
-            if (newTab == analyticsTab) {
-                refreshAnalyticsView();
-            }
-        });
+        // Page 3: CFO Simulator & Audit
+        cfoToolsContainer = new VBox(18);
+        cfoToolsContainer.setPadding(new Insets(20, 26, 26, 26));
+        cfoViewNode = wrapInCleanScrollPane(cfoToolsContainer);
 
-        tabPane.getTabs().addAll(ledgerTab, analyticsTab);
-        return tabPane;
+        workspaceStack = new StackPane(ledgerViewNode);
+        workspace.setTop(topHeader);
+        workspace.setCenter(workspaceStack);
+        return workspace;
+    }
+
+    private void switchWorkspacePage(int index) {
+        styleSegmentButton(segBtnLedger, index == 0);
+        styleSegmentButton(segBtnAnalytics, index == 1);
+        styleSegmentButton(segBtnCfo, index == 2);
+
+        workspaceStack.getChildren().clear();
+        if (index == 0) {
+            rootPane.setLeft(ledgerSidebarNode);
+            workspaceStack.getChildren().add(ledgerViewNode);
+        } else if (index == 1) {
+            rootPane.setLeft(analyticsSidebarHidden ? null : analyticsSidebarNode);
+            refreshAnalyticsTab();
+            workspaceStack.getChildren().add(analyticsViewNode);
+        } else {
+            rootPane.setLeft(analyticsSidebarHidden ? null : analyticsSidebarNode);
+            refreshCfoToolsTab();
+            workspaceStack.getChildren().add(cfoViewNode);
+        }
+    }
+
+    private ScrollPane wrapInCleanScrollPane(Node content) {
+        ScrollPane sp = new ScrollPane(content);
+        sp.setFitToWidth(true);
+        sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        sp.getStyleClass().add("edge-to-edge-scroll");
+        sp.setStyle("-fx-background: #0B0F19; -fx-background-color: #0B0F19;");
+        return sp;
+    }
+
+    private void refreshAnalyticsTab() {
+        StudioProFeatures.populateAnalyticsDashboard(
+                analyticsContainer,
+                allTransactions,
+                taxRatePercent,
+                revenueGoal,
+                analyticsScope,
+                analyticsSidebarHidden,
+                this::toggleAnalyticsSidebar
+        );
+    }
+
+    private void refreshCfoToolsTab() {
+        if (cfoToolsContainer == null) return;
+        StudioProFeatures.populateCfoToolsTab(
+                cfoToolsContainer,
+                allTransactions,
+                taxRatePercent,
+                newTx -> {
+                    allTransactions.add(newTx);
+                    appendToCsv(newTx);
+                    refreshVendorAutocomplete();
+                    showAllEntries();
+                    refreshCfoToolsTab();
+                    statusFooter.setText("Posted from CFO Suite: " + newTx.getDescription());
+                },
+                () -> {
+                    for (Transaction t : StudioProFeatures.generateRealisticStudioTransactions()) {
+                        allTransactions.add(t);
+                        appendToCsv(t);
+                    }
+                    refreshVendorAutocomplete();
+                    showAllEntries();
+                    refreshCfoToolsTab();
+                    statusFooter.setText("Injected 6 realistic VisualTizita studio transactions!");
+                },
+                () -> {
+                    String msg = StudioProFeatures.createCsvBackupSnapshot();
+                    statusFooter.setText(msg);
+                    showAlert("CSV Backup Complete", msg);
+                }
+        );
     }
 
     private VBox buildCashFlowBar() {
-        VBox box = new VBox(5);
-        box.setPadding(new Insets(8, 14, 10, 14));
-        box.setStyle("-fx-background-color: #111827; -fx-background-radius: 10; -fx-border-color: #26221a; -fx-border-radius: 10;");
+        VBox box = new VBox(6);
+        box.setPadding(new Insets(10, 18, 12, 18));
+        box.setStyle("-fx-background-color: #101726; -fx-background-radius: 12; -fx-border-color: #1C283E; -fx-border-radius: 12;");
 
         HBox topRow = new HBox();
-        Label lbl = new Label("CASH FLOW HEALTH (CURRENT VIEW)");
+        topRow.setAlignment(Pos.CENTER_LEFT);
+        Label lbl = new Label("CASH FLOW RATIO & LIQUIDITY VELOCITY");
         lbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
-        lbl.setTextFill(Color.web("#9ca3af"));
+        lbl.setTextFill(Color.web("#64748B"));
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         cashFlowRatioLabel = new Label("100% Positive Flow");
         cashFlowRatioLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11));
-        cashFlowRatioLabel.setTextFill(Color.web("#d4af37"));
+        cashFlowRatioLabel.setTextFill(Color.web("#D4AF37"));
 
         topRow.getChildren().addAll(lbl, spacer, cashFlowRatioLabel);
 
         cashFlowBar = new ProgressBar(1.0);
         cashFlowBar.setMaxWidth(Double.MAX_VALUE);
-        cashFlowBar.setPrefHeight(8);
-        cashFlowBar.setStyle("-fx-accent: #10b981;");
+        cashFlowBar.setPrefHeight(7);
+        cashFlowBar.getStyleClass().add("fintech-progress");
 
         box.getChildren().addAll(topRow, cashFlowBar);
         return box;
     }
 
     private VBox buildCustomSearchPanel() {
-        VBox box = new VBox(8);
-        box.setPadding(new Insets(12, 16, 12, 16));
-        box.setStyle("-fx-background-color: #111827; -fx-background-radius: 10; -fx-border-color: #26221a; -fx-border-radius: 10;");
+        VBox box = new VBox(10);
+        box.setPadding(new Insets(14, 18, 14, 18));
+        box.setStyle("-fx-background-color: #101726; -fx-background-radius: 12; -fx-border-color: #1C283E; -fx-border-radius: 12;");
 
-        Label title = new Label("CUSTOM MULTI-FILTER SEARCH (Live search by typing or clicking Apply)");
-        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11));
-        title.setTextFill(Color.web("#d4af37"));
+        HBox headerRow = new HBox(10);
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+        Label title = new Label("INTELLIGENT MULTI-PARAMETER FILTER");
+        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
+        title.setTextFill(Color.web("#D4AF37"));
 
-        HBox row1 = new HBox(10);
-        row1.setAlignment(Pos.CENTER_LEFT);
+        Label sub = new Label("Instant live filtering across description, vendor, date range, and transaction bounds");
+        sub.setFont(Font.font("Segoe UI", 11));
+        sub.setTextFill(Color.web("#64748B"));
+        headerRow.getChildren().addAll(title, sub);
 
-        descSearchField = createStyledTextField("Description contains...");
-        vendorSearchField = createStyledTextField("Vendor contains...");
-        startDateField = createStyledTextField("Start (YYYY-MM-DD)");
-        endDateField = createStyledTextField("End (YYYY-MM-DD)");
+        HBox filterBar = new HBox(10);
+        filterBar.setAlignment(Pos.CENTER_LEFT);
+
+        descSearchField = createStyledTextField("⌕  Search description...");
+        descSearchField.setPrefWidth(210);
+
+        vendorComboField = new ComboBox<>();
+        vendorComboField.setEditable(true);
+        vendorComboField.setPromptText("Vendor / Client...");
+        vendorComboField.setPrefWidth(190);
+        vendorComboField.getStyleClass().add("dark-combo");
+        refreshVendorAutocomplete();
+
+        startDatePicker = new DatePicker();
+        startDatePicker.setPromptText("Start Date");
+        startDatePicker.setPrefWidth(135);
+        startDatePicker.getStyleClass().add("dark-datepicker");
+
+        endDatePicker = new DatePicker();
+        endDatePicker.setPromptText("End Date");
+        endDatePicker.setPrefWidth(135);
+        endDatePicker.getStyleClass().add("dark-datepicker");
+
+        minAmountField = createStyledTextField("Min $");
+        minAmountField.setPrefWidth(90);
+
+        maxAmountField = createStyledTextField("Max $");
+        maxAmountField.setPrefWidth(90);
 
         HBox.setHgrow(descSearchField, Priority.ALWAYS);
-        HBox.setHgrow(vendorSearchField, Priority.ALWAYS);
-        startDateField.setPrefWidth(160);
-        endDateField.setPrefWidth(160);
+        HBox.setHgrow(vendorComboField, Priority.ALWAYS);
 
         descSearchField.textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
-        vendorSearchField.textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
+        vendorComboField.getEditor().textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
+        startDatePicker.valueProperty().addListener((obs, oldV, newV) -> runCustomSearch());
+        endDatePicker.valueProperty().addListener((obs, oldV, newV) -> runCustomSearch());
+        minAmountField.textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
+        maxAmountField.textProperty().addListener((obs, oldV, newV) -> runCustomSearch());
 
-        row1.getChildren().addAll(descSearchField, vendorSearchField, startDateField, endDateField);
-
-        HBox row2 = new HBox(10);
-        row2.setAlignment(Pos.CENTER_LEFT);
-
-        minAmountField = createStyledTextField("Min Amount ($)");
-        maxAmountField = createStyledTextField("Max Amount ($)");
-        minAmountField.setPrefWidth(140);
-        maxAmountField.setPrefWidth(140);
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        Button btnRunSearch = new Button("Apply Filters");
-        btnRunSearch.setMinWidth(110);
-        btnRunSearch.setStyle("-fx-background-color: #d4af37; -fx-text-fill: #000000; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 16; -fx-cursor: hand;");
+        Button btnRunSearch = new Button("Filter");
+        btnRunSearch.setMinWidth(76);
+        btnRunSearch.setStyle("-fx-background-color: #D4AF37; -fx-text-fill: #070A12; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 7 14; -fx-cursor: hand;");
         btnRunSearch.setOnAction(e -> runCustomSearch());
 
-        Button btnClear = new Button("Reset All");
-        btnClear.setMinWidth(95);
-        btnClear.setStyle("-fx-background-color: #374151; -fx-text-fill: #e5e7eb; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 14; -fx-cursor: hand;");
+        Button btnClear = new Button("Reset");
+        btnClear.setMinWidth(70);
+        btnClear.setStyle("-fx-background-color: #192338; -fx-text-fill: #94A3B8; -fx-font-weight: bold; -fx-background-radius: 8; -fx-border-color: #263552; -fx-border-radius: 8; -fx-padding: 7 12; -fx-cursor: hand;");
         btnClear.setOnAction(e -> {
-            startDateField.clear();
-            endDateField.clear();
+            startDatePicker.setValue(null);
+            endDatePicker.setValue(null);
             descSearchField.clear();
-            vendorSearchField.clear();
+            vendorComboField.getEditor().clear();
+            vendorComboField.setValue(null);
             minAmountField.clear();
             maxAmountField.clear();
             showAllEntries();
         });
 
-        row2.getChildren().addAll(minAmountField, maxAmountField, spacer, btnRunSearch, btnClear);
-        box.getChildren().addAll(title, row1, row2);
+        filterBar.getChildren().addAll(
+                descSearchField, vendorComboField,
+                startDatePicker, endDatePicker,
+                minAmountField, maxAmountField,
+                btnRunSearch, btnClear
+        );
+
+        box.getChildren().addAll(headerRow, filterBar);
         return box;
+    }
+
+    private void refreshVendorAutocomplete() {
+        if (vendorComboField == null) return;
+        List<String> vendors = allTransactions.stream()
+                .map(Transaction::getVendor)
+                .filter(v -> v != null && !v.isBlank())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        vendorComboField.getItems().setAll(vendors);
     }
 
     private TableView<Transaction> buildTransactionTable() {
         TableView<Transaction> table = new TableView<>(displayedTransactions);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        table.setPlaceholder(new Label("No transactions match the current filter."));
+        table.getStyleClass().add("enterprise-table");
+
+        Label emptyLabel = new Label("No matching ledger records found.");
+        emptyLabel.setTextFill(Color.web("#64748B"));
+        table.setPlaceholder(emptyLabel);
 
         DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-        TableColumn<Transaction, String> colDate = new TableColumn<>("Date");
+        TableColumn<Transaction, String> colDate = new TableColumn<>("DATE");
         colDate.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getDate().toString()));
-        colDate.setMaxWidth(1f * Integer.MAX_VALUE * 14);
-
-        TableColumn<Transaction, String> colTime = new TableColumn<>("Time");
-        colTime.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getTime().format(timeFmt)));
-        colTime.setMaxWidth(1f * Integer.MAX_VALUE * 12);
-
-        TableColumn<Transaction, String> colDesc = new TableColumn<>("Description");
-        colDesc.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getDescription()));
-        colDesc.setMaxWidth(1f * Integer.MAX_VALUE * 36);
-
-        TableColumn<Transaction, String> colVendor = new TableColumn<>("Vendor");
-        colVendor.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getVendor()));
-        colVendor.setMaxWidth(1f * Integer.MAX_VALUE * 22);
-
-        TableColumn<Transaction, String> colAmount = new TableColumn<>("Amount");
-        colAmount.setCellValueFactory(cell -> {
-            double amt = cell.getValue().getAmount();
-            if (Math.abs(amt) < 0.005) amt = 0.0;
-            String formatted = amt < 0
-                    ? String.format("-$%,.2f", Math.abs(amt))
-                    : String.format("+$%,.2f", amt);
-            return new SimpleStringProperty(formatted);
-        });
-        colAmount.setMaxWidth(1f * Integer.MAX_VALUE * 16);
-
-        colAmount.setCellFactory(col -> new TableCell<>() {
+        colDate.setMaxWidth(1f * Integer.MAX_VALUE * 12);
+        colDate.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
-                    setStyle("");
                 } else {
                     setText(item);
+                    setStyle("-fx-text-fill: #E2E8F0; -fx-font-weight: bold; -fx-font-size: 12px;");
+                }
+            }
+        });
+
+        TableColumn<Transaction, String> colTime = new TableColumn<>("TIMESTAMP");
+        colTime.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getTime().format(timeFmt)));
+        colTime.setMaxWidth(1f * Integer.MAX_VALUE * 10);
+        colTime.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText(item);
+                    setStyle("-fx-text-fill: #64748B; -fx-font-family: 'Consolas'; -fx-font-size: 12px;");
+                }
+            }
+        });
+
+        TableColumn<Transaction, String> colDesc = new TableColumn<>("TRANSACTION DESCRIPTION");
+        colDesc.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getDescription()));
+        colDesc.setMaxWidth(1f * Integer.MAX_VALUE * 32);
+        colDesc.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText(item);
+                    setStyle("-fx-text-fill: #F8FAFC; -fx-font-weight: bold; -fx-font-size: 13px;");
+                }
+            }
+        });
+
+        TableColumn<Transaction, String> colVendor = new TableColumn<>("COUNTERPARTY / VENDOR");
+        colVendor.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().getVendor()));
+        colVendor.setMaxWidth(1f * Integer.MAX_VALUE * 18);
+        colVendor.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setGraphic(null);
+                    setText(null);
+                } else {
+                    Label pill = new Label(item);
+                    pill.setStyle("-fx-background-color: #172236; -fx-text-fill: #CBD5E1; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 4 10; -fx-background-radius: 6; -fx-border-color: #243452; -fx-border-radius: 6;");
+                    setGraphic(pill);
+                    setText(null);
+                }
+            }
+        });
+
+        // Modern Fintech Pill Badges for Transaction Amounts
+        TableColumn<Transaction, String> colAmount = new TableColumn<>("NET AMOUNT");
+        colAmount.setCellValueFactory(cell -> {
+            double amt = cell.getValue().getAmount();
+            if (Math.abs(amt) < 0.005) amt = 0.0;
+            String formatted = amt < 0 ? String.format("- $%,.2f", Math.abs(amt)) : String.format("+ $%,.2f", amt);
+            return new SimpleStringProperty(formatted);
+        });
+        colAmount.setMaxWidth(1f * Integer.MAX_VALUE * 14);
+        colAmount.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setGraphic(null);
+                    setText(null);
+                } else {
+                    Label badge = new Label(item);
                     if (item.startsWith("-")) {
-                        setStyle("-fx-text-fill: #f87171; -fx-font-weight: bold; -fx-alignment: CENTER-RIGHT;");
-                    } else if (item.equals("+$0.00")) {
-                        setStyle("-fx-text-fill: #9ca3af; -fx-font-weight: bold; -fx-alignment: CENTER-RIGHT;");
+                        badge.setStyle("-fx-background-color: rgba(248,113,113,0.14); -fx-text-fill: #F87171; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 4 10; -fx-background-radius: 6; -fx-border-color: rgba(248,113,113,0.3); -fx-border-radius: 6;");
+                    } else if (item.equals("+ $0.00")) {
+                        badge.setStyle("-fx-background-color: rgba(148,163,184,0.12); -fx-text-fill: #94A3B8; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 4 10; -fx-background-radius: 6;");
                     } else {
-                        setStyle("-fx-text-fill: #34d399; -fx-font-weight: bold; -fx-alignment: CENTER-RIGHT;");
+                        badge.setStyle("-fx-background-color: rgba(52,211,153,0.14); -fx-text-fill: #34D399; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 4 10; -fx-background-radius: 6; -fx-border-color: rgba(52,211,153,0.3); -fx-border-radius: 6;");
                     }
+                    HBox wrapper = new HBox(badge);
+                    wrapper.setAlignment(Pos.CENTER_RIGHT);
+                    setGraphic(wrapper);
+                    setText(null);
+                }
+            }
+        });
+
+        TableColumn<Transaction, String> colRunning = new TableColumn<>("RUNNING BALANCE");
+        colRunning.setCellValueFactory(cell -> {
+            Double bal = runningBalanceMap.get(cell.getValue());
+            if (bal == null) return new SimpleStringProperty("$0.00");
+            return new SimpleStringProperty(bal < 0 ? String.format("-$%,.2f", Math.abs(bal)) : String.format("$%,.2f", bal));
+        });
+        colRunning.setMaxWidth(1f * Integer.MAX_VALUE * 14);
+        colRunning.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    setText(item);
+                    setStyle("-fx-alignment: CENTER-RIGHT; -fx-text-fill: #D4AF37; -fx-font-weight: bold; -fx-font-family: 'Consolas'; -fx-font-size: 13px;");
                 }
             }
         });
@@ -412,21 +681,38 @@ public class LedgerGUI extends Application {
         table.setRowFactory(tv -> {
             TableRow<Transaction> row = new TableRow<>();
 
-            ContextMenu contextMenu = new ContextMenu();
-            MenuItem deleteItem = new MenuItem("Delete Transaction");
-            deleteItem.setStyle("-fx-text-fill: #ef4444; -fx-font-weight: bold;");
-            deleteItem.setOnAction(event -> {
-                Transaction t = row.getItem();
-                if (t != null) {
-                    deleteTransaction(t);
+            ContextMenu menu = new ContextMenu();
+            MenuItem editItem = new MenuItem("✏  Edit / Modify Transaction...");
+            editItem.setOnAction(e -> {
+                if (row.getItem() != null) {
+                    StudioProFeatures.openEditTransactionModal(row.getItem(), allTransactions, () -> {
+                        saveAllTransactionsToCsv();
+                        refreshVendorAutocomplete();
+                        showAllEntries();
+                        statusFooter.setText("Updated transaction in transactions.csv.");
+                    });
                 }
             });
-            contextMenu.getItems().add(deleteItem);
+
+            MenuItem invoiceItem = new MenuItem("🖨  Generate Printable HTML Invoice");
+            invoiceItem.setOnAction(e -> {
+                if (row.getItem() != null) {
+                    StudioProFeatures.generateHtmlInvoice(row.getItem());
+                }
+            });
+
+            MenuItem deleteItem = new MenuItem("🗑  Delete Transaction");
+            deleteItem.setStyle("-fx-text-fill: #F87171; -fx-font-weight: bold;");
+            deleteItem.setOnAction(e -> {
+                if (row.getItem() != null) deleteTransaction(row.getItem());
+            });
+
+            menu.getItems().addAll(editItem, invoiceItem, new SeparatorMenuItem(), deleteItem);
 
             row.contextMenuProperty().bind(
                     javafx.beans.binding.Bindings.when(row.emptyProperty())
                             .then((ContextMenu) null)
-                            .otherwise(contextMenu)
+                            .otherwise(menu)
             );
 
             row.setOnMouseClicked(event -> {
@@ -437,173 +723,146 @@ public class LedgerGUI extends Application {
             return row;
         });
 
-        table.getColumns().addAll(colDate, colTime, colDesc, colVendor, colAmount);
+        table.getColumns().addAll(colDate, colTime, colDesc, colVendor, colAmount, colRunning);
         return table;
     }
 
-    private void deleteTransaction(Transaction t) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Confirm Deletion");
-        confirm.setHeaderText("Delete transaction with " + t.getVendor() + "?");
-        confirm.setContentText("Description: " + t.getDescription() + "\nAmount: $" + t.getAmount());
+    private void openTransactionModal(boolean isDeposit) {
+        Dialog<Transaction> dialog = new Dialog<>();
+        dialog.setTitle(isDeposit ? "Add Studio Deposit" : "Make Studio Payment (Debit)");
+        dialog.setHeaderText(isDeposit
+                ? "Select a Quick Studio Preset or enter custom deposit details"
+                : "Select a Quick Expense Preset or enter custom payment details");
 
-        confirm.showAndWait().ifPresent(resp -> {
-            if (resp == ButtonType.OK) {
-                allTransactions.remove(t);
-                saveAllTransactionsToCsv();
-                showAllEntries();
-                statusFooter.setText("Deleted transaction from transactions.csv.");
+        ButtonType saveButtonType = new ButtonType("Save Transaction", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveButtonType, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(12);
+        grid.setVgap(12);
+        grid.setPadding(new Insets(18));
+
+        String[][] presets = isDeposit ? StudioProFeatures.DEPOSIT_PRESETS : StudioProFeatures.PAYMENT_PRESETS;
+        ComboBox<String> presetBox = new ComboBox<>();
+        for (String[] p : presets) presetBox.getItems().add(p[0]);
+        presetBox.getSelectionModel().selectFirst();
+        presetBox.setMaxWidth(Double.MAX_VALUE);
+
+        TextField descField = new TextField();
+        descField.setPromptText("e.g., Wedding Photography Package");
+        descField.setPrefWidth(270);
+
+        TextField vendorField = new TextField();
+        vendorField.setPromptText("e.g., VisualTizita Client / B&H Photo");
+
+        TextField amountField = new TextField();
+        amountField.setPromptText("e.g., 1500.00");
+
+        presetBox.setOnAction(e -> {
+            int idx = presetBox.getSelectionModel().getSelectedIndex();
+            if (idx > 0 && idx < presets.length) {
+                descField.setText(presets[idx][0]);
+                vendorField.setText(presets[idx][1]);
+                amountField.setText(presets[idx][2]);
             }
+        });
+
+        grid.add(new Label("Quick Studio Preset:"), 0, 0);
+        grid.add(presetBox, 1, 0);
+        grid.add(new Label("Description:"), 0, 1);
+        grid.add(descField, 1, 1);
+        grid.add(new Label("Vendor / Client:"), 0, 2);
+        grid.add(vendorField, 1, 2);
+        grid.add(new Label("Amount ($):"), 0, 3);
+        grid.add(amountField, 1, 3);
+
+        dialog.getDialogPane().setContent(grid);
+
+        dialog.setResultConverter(btn -> {
+            if (btn == saveButtonType) {
+                try {
+                    String d = descField.getText().trim();
+                    String v = vendorField.getText().trim();
+                    double rawAmount = Double.parseDouble(amountField.getText().trim());
+                    if (d.isEmpty() || v.isEmpty() || rawAmount <= 0) {
+                        showAlert("Validation Error", "All fields are required and the amount must be greater than 0.");
+                        return null;
+                    }
+                    double finalAmount = isDeposit ? Math.abs(rawAmount) : -Math.abs(rawAmount);
+                    return new Transaction(LocalDate.now(), LocalTime.now(), d, v, finalAmount);
+                } catch (NumberFormatException ex) {
+                    showAlert("Invalid Amount", "Please enter a valid numeric amount (e.g., 250.00).");
+                    return null;
+                }
+            }
+            return null;
+        });
+
+        dialog.showAndWait().ifPresent(newTx -> {
+            allTransactions.add(newTx);
+            appendToCsv(newTx);
+            refreshVendorAutocomplete();
+            showAllEntries();
+            statusFooter.setText("Saved new transaction to transactions.csv: " + newTx.getDescription());
         });
     }
 
-    private void showTransactionReceipt(Transaction t) {
-        Alert receipt = new Alert(Alert.AlertType.INFORMATION);
-        receipt.setTitle("VisualTizita Transaction Receipt");
-        receipt.setHeaderText(t.getAmount() >= 0 ? "STUDIO DEPOSIT RECEIPT" : "STUDIO PAYMENT VOUCHER");
-        String details = String.format(
-                "Date:          %s\nTime:          %s\nVendor:        %s\nDescription:   %s\nAmount:        %s",
-                t.getDate(),
-                t.getTime().format(DateTimeFormatter.ofPattern("HH:mm:ss")),
-                t.getVendor(),
-                t.getDescription(),
-                t.getAmount() < 0 ? String.format("-$%,.2f", Math.abs(t.getAmount())) : String.format("+$%,.2f", t.getAmount())
-        );
-        receipt.setContentText(details);
-        receipt.showAndWait();
-    }
-
-    private void refreshAnalyticsView() {
-        analyticsContainer.getChildren().clear();
-
-        Label title = new Label("VISUALTIZITA STUDIO FINANCIAL ANALYTICS");
-        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 18));
-        title.setTextFill(Color.web("#d4af37"));
-
-        Label subtitle = new Label("Aggregated performance metrics across all recorded transactions.");
-        subtitle.setFont(Font.font("Segoe UI", 12));
-        subtitle.setTextFill(Color.web("#9ca3af"));
-
-        VBox headerBox = new VBox(4, title, subtitle);
-
-        Map<String, Double> vendorTotals = new HashMap<>();
-        double totalVolume = 0;
-        for (Transaction t : allTransactions) {
-            vendorTotals.put(t.getVendor(), vendorTotals.getOrDefault(t.getVendor(), 0.0) + t.getAmount());
-            totalVolume += Math.abs(t.getAmount());
-        }
-
-        VBox breakdownCard = new VBox(12);
-        breakdownCard.setPadding(new Insets(20));
-        breakdownCard.setStyle("-fx-background-color: #111827; -fx-background-radius: 12; -fx-border-color: #26221a; -fx-border-radius: 12;");
-
-        Label cardTitle = new Label("NET CASH FLOW BY VENDOR / CLIENT");
-        cardTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
-        cardTitle.setTextFill(Color.web("#f3f4f6"));
-        breakdownCard.getChildren().add(cardTitle);
-
-        if (vendorTotals.isEmpty()) {
-            breakdownCard.getChildren().add(new Label("No transactions available for analysis."));
-        } else {
-            for (Map.Entry<String, Double> entry : vendorTotals.entrySet()) {
-                String vendor = entry.getKey();
-                double amt = entry.getValue();
-
-                HBox row = new HBox(12);
-                row.setAlignment(Pos.CENTER_LEFT);
-
-                Label vLabel = new Label(vendor);
-                vLabel.setPrefWidth(220);
-                vLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
-                vLabel.setTextFill(Color.web("#e5e7eb"));
-
-                ProgressBar bar = new ProgressBar(totalVolume > 0 ? Math.min(1.0, Math.abs(amt) / totalVolume) * 2 : 0);
-                bar.setPrefWidth(350);
-                bar.setStyle(amt >= 0 ? "-fx-accent: #34d399;" : "-fx-accent: #f87171;");
-
-                Label aLabel = new Label(amt < 0 ? String.format("-$%,.2f", Math.abs(amt)) : String.format("+$%,.2f", amt));
-                aLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
-                aLabel.setTextFill(Color.web(amt >= 0 ? "#34d399" : "#f87171"));
-
-                row.getChildren().addAll(vLabel, bar, aLabel);
-                breakdownCard.getChildren().add(row);
-            }
-        }
-
-        analyticsContainer.getChildren().addAll(headerBox, new Separator(), breakdownCard);
-    }
-
-    private List<Transaction> getSortedNewestFirst(List<Transaction> source) {
-        return source.stream()
+    private void updateView(String title, List<Transaction> list) {
+        runningBalanceMap = StudioProFeatures.calculateRunningBalances(allTransactions);
+        activeViewTitle.setText(title);
+        recordCountBadge.setText(list.size() + (list.size() == 1 ? " record" : " records"));
+        List<Transaction> sorted = list.stream()
                 .sorted(Comparator.comparing(Transaction::getDate)
                         .thenComparing(Transaction::getTime)
                         .reversed())
                 .collect(Collectors.toList());
-    }
-
-    private void updateView(String title, List<Transaction> list) {
-        activeViewTitle.setText(title + " (" + list.size() + ")");
-        displayedTransactions.setAll(getSortedNewestFirst(list));
+        displayedTransactions.setAll(sorted);
         refreshKpiTotals();
     }
 
     private void showAllEntries() {
-        updateView("All Entries — Newest First", allTransactions);
+        updateView("All Transactions — Newest First", allTransactions);
         statusFooter.setText("Showing all " + allTransactions.size() + " transactions.");
     }
 
     private void showDepositsOnly() {
-        List<Transaction> filtered = allTransactions.stream().filter(t -> t.getAmount() > 0).collect(Collectors.toList());
-        updateView("Deposits Only", filtered);
+        updateView("Inbound Deposits Only", allTransactions.stream().filter(t -> t.getAmount() > 0).collect(Collectors.toList()));
     }
 
     private void showPaymentsOnly() {
-        List<Transaction> filtered = allTransactions.stream().filter(t -> t.getAmount() < 0).collect(Collectors.toList());
-        updateView("Payments (Debits) Only", filtered);
+        updateView("Outbound Payments Only", allTransactions.stream().filter(t -> t.getAmount() < 0).collect(Collectors.toList()));
     }
 
     private void filterMonthToDate() {
         LocalDate today = LocalDate.now();
-        List<Transaction> filtered = allTransactions.stream()
-                .filter(t -> t.getDate().getYear() == today.getYear() && t.getDate().getMonth() == today.getMonth())
-                .collect(Collectors.toList());
-        updateView("Report: Month to Date (" + today.getMonth() + " " + today.getYear() + ")", filtered);
+        updateView("Period: Month to Date (" + today.getMonth() + " " + today.getYear() + ")",
+                allTransactions.stream().filter(t -> t.getDate().getYear() == today.getYear() && t.getDate().getMonth() == today.getMonth()).collect(Collectors.toList()));
     }
 
     private void filterPreviousMonth() {
         LocalDate prev = LocalDate.now().minusMonths(1);
-        List<Transaction> filtered = allTransactions.stream()
-                .filter(t -> t.getDate().getYear() == prev.getYear() && t.getDate().getMonth() == prev.getMonth())
-                .collect(Collectors.toList());
-        updateView("Report: Previous Month (" + prev.getMonth() + " " + prev.getYear() + ")", filtered);
+        updateView("Period: Previous Month (" + prev.getMonth() + " " + prev.getYear() + ")",
+                allTransactions.stream().filter(t -> t.getDate().getYear() == prev.getYear() && t.getDate().getMonth() == prev.getMonth()).collect(Collectors.toList()));
     }
 
     private void filterYearToDate() {
         int year = LocalDate.now().getYear();
-        List<Transaction> filtered = allTransactions.stream()
-                .filter(t -> t.getDate().getYear() == year)
-                .collect(Collectors.toList());
-        updateView("Report: Year to Date (" + year + ")", filtered);
+        updateView("Period: Year to Date (" + year + ")",
+                allTransactions.stream().filter(t -> t.getDate().getYear() == year).collect(Collectors.toList()));
     }
 
     private void filterPreviousYear() {
         int prevYear = LocalDate.now().getYear() - 1;
-        List<Transaction> filtered = allTransactions.stream()
-                .filter(t -> t.getDate().getYear() == prevYear)
-                .collect(Collectors.toList());
-        updateView("Report: Previous Year (" + prevYear + ")", filtered);
+        updateView("Period: Previous Year (" + prevYear + ")",
+                allTransactions.stream().filter(t -> t.getDate().getYear() == prevYear).collect(Collectors.toList()));
     }
 
     private void runCustomSearch() {
         try {
-            String startStr = startDateField.getText().trim();
-            LocalDate startDate = startStr.isEmpty() ? null : LocalDate.parse(startStr);
-
-            String endStr = endDateField.getText().trim();
-            LocalDate endDate = endStr.isEmpty() ? null : LocalDate.parse(endStr);
-
+            LocalDate startDate = startDatePicker.getValue();
+            LocalDate endDate = endDatePicker.getValue();
             String desc = descSearchField.getText().trim().toLowerCase();
-            String vendor = vendorSearchField.getText().trim().toLowerCase();
+            String vendor = vendorComboField.getEditor().getText().trim().toLowerCase();
 
             String minStr = minAmountField.getText().trim();
             Double minAmt = minStr.isEmpty() ? null : Double.parseDouble(minStr);
@@ -620,39 +879,88 @@ public class LedgerGUI extends Application {
                 if (!vendor.isEmpty() && !t.getVendor().toLowerCase().contains(vendor)) match = false;
                 if (minAmt != null && t.getAmount() < minAmt) match = false;
                 if (maxAmt != null && t.getAmount() > maxAmt) match = false;
-
                 if (match) results.add(t);
             }
 
-            updateView("Custom Search Results", results);
-            statusFooter.setText("Custom search matched " + results.size() + " transaction(s).");
-        } catch (Exception ex) {
-            // Ignore live typing parse errors
+            updateView("Filtered Search View", results);
+            statusFooter.setText("Filter matched " + results.size() + " transaction(s).");
+        } catch (Exception ignored) {
         }
     }
 
     private void refreshKpiTotals() {
         double deposits = 0;
         double payments = 0;
+        int depCount = 0;
+        int payCount = 0;
         for (Transaction t : displayedTransactions) {
-            if (t.getAmount() > 0) deposits += t.getAmount();
-            else if (t.getAmount() < 0) payments += Math.abs(t.getAmount());
+            if (t.getAmount() > 0) {
+                deposits += t.getAmount();
+                depCount++;
+            } else if (t.getAmount() < 0) {
+                payments += Math.abs(t.getAmount());
+                payCount++;
+            }
         }
         double net = deposits - payments;
 
         totalBalanceValue.setText(net < 0 ? String.format("-$%,.2f", Math.abs(net)) : String.format("$%,.2f", net));
+        totalBalanceSub.setText(String.format("Across %d active ledger entries", displayedTransactions.size()));
+
         totalDepositsValue.setText(String.format("+$%,.2f", deposits));
+        totalDepositsSub.setText(String.format("%d inbound client credit(s)", depCount));
+
         totalPaymentsValue.setText(String.format("-$%,.2f", payments));
+        totalPaymentsSub.setText(String.format("%d outbound vendor debit(s)", payCount));
 
         double totalVolume = deposits + payments;
         if (totalVolume > 0) {
             double ratio = deposits / totalVolume;
             cashFlowBar.setProgress(ratio);
-            cashFlowRatioLabel.setText(String.format("%.0f%% Deposits  |  %.0f%% Payments", ratio * 100, (1 - ratio) * 100));
+            cashFlowRatioLabel.setText(String.format("%.0f%% Inbound Credits   •   %.0f%% Outbound Debits", ratio * 100, (1 - ratio) * 100));
         } else {
             cashFlowBar.setProgress(0.5);
             cashFlowRatioLabel.setText("No volume in current view");
         }
+    }
+
+    private void deleteTransaction(Transaction t) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Confirm Deletion");
+        confirm.setHeaderText("Delete transaction with " + t.getVendor() + "?");
+        confirm.setContentText("Description: " + t.getDescription() + "\nAmount: $" + t.getAmount());
+
+        confirm.showAndWait().ifPresent(resp -> {
+            if (resp == ButtonType.OK) {
+                allTransactions.remove(t);
+                saveAllTransactionsToCsv();
+                refreshVendorAutocomplete();
+                showAllEntries();
+                statusFooter.setText("Deleted transaction from transactions.csv.");
+            }
+        });
+    }
+
+    private void showTransactionReceipt(Transaction t) {
+        Alert receipt = new Alert(Alert.AlertType.INFORMATION);
+        receipt.setTitle("VisualTizita Transaction Voucher");
+        receipt.setHeaderText(t.getAmount() >= 0 ? "STUDIO DEPOSIT RECEIPT" : "STUDIO PAYMENT VOUCHER");
+
+        ButtonType htmlBtn = new ButtonType("🖨 Open Printable HTML Invoice", ButtonBar.ButtonData.LEFT);
+        receipt.getButtonTypes().add(htmlBtn);
+
+        String details = String.format(
+                "Date:          %s\nTime:          %s\nVendor:        %s\nDescription:   %s\nAmount:        %s",
+                t.getDate(),
+                t.getTime().format(DateTimeFormatter.ofPattern("HH:mm:ss")),
+                t.getVendor(),
+                t.getDescription(),
+                t.getAmount() < 0 ? String.format("-$%,.2f", Math.abs(t.getAmount())) : String.format("+$%,.2f", t.getAmount())
+        );
+        receipt.setContentText(details);
+        receipt.showAndWait().ifPresent(res -> {
+            if (res == htmlBtn) StudioProFeatures.generateHtmlInvoice(t);
+        });
     }
 
     private void exportCurrentViewToCsv() {
@@ -674,73 +982,20 @@ public class LedgerGUI extends Application {
         }
     }
 
-    private void openTransactionModal(boolean isDeposit) {
-        Dialog<Transaction> dialog = new Dialog<>();
-        dialog.setTitle(isDeposit ? "Add Deposit" : "Make Payment (Debit)");
-        dialog.setHeaderText(isDeposit ? "Record a positive deposit into transactions.csv" : "Record a payment (automatically converted to negative)");
-
-        ButtonType saveButtonType = new ButtonType("Save Transaction", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(saveButtonType, ButtonType.CANCEL);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(12);
-        grid.setPadding(new Insets(20, 20, 10, 10));
-
-        TextField descField = new TextField();
-        descField.setPromptText("e.g., Wedding Photography Package");
-        descField.setPrefWidth(260);
-
-        TextField vendorField = new TextField();
-        vendorField.setPromptText("e.g., VisualTizita Client / B&H Photo");
-
-        TextField amountField = new TextField();
-        amountField.setPromptText("e.g., 1500.00");
-
-        grid.add(new Label("Description:"), 0, 0);
-        grid.add(descField, 1, 0);
-        grid.add(new Label("Vendor:"), 0, 1);
-        grid.add(vendorField, 1, 1);
-        grid.add(new Label("Amount ($):"), 0, 2);
-        grid.add(amountField, 1, 2);
-
-        dialog.getDialogPane().setContent(grid);
-
-        dialog.setResultConverter(btn -> {
-            if (btn == saveButtonType) {
-                try {
-                    String d = descField.getText().trim();
-                    String v = vendorField.getText().trim();
-                    double rawAmount = Double.parseDouble(amountField.getText().trim());
-
-                    if (d.isEmpty() || v.isEmpty() || rawAmount <= 0) {
-                        showAlert("Validation Error", "All fields are required and the amount must be greater than 0.");
-                        return null;
-                    }
-
-                    double finalAmount = isDeposit ? Math.abs(rawAmount) : -Math.abs(rawAmount);
-                    return new Transaction(LocalDate.now(), LocalTime.now(), d, v, finalAmount);
-                } catch (NumberFormatException ex) {
-                    showAlert("Invalid Amount", "Please enter a valid numeric amount (e.g., 250.00).");
-                    return null;
-                }
-            }
-            return null;
-        });
-
-        dialog.showAndWait().ifPresent(newTx -> {
-            allTransactions.add(newTx);
-            appendToCsv(newTx);
-            showAllEntries();
-            statusFooter.setText("Saved new transaction to transactions.csv: " + newTx.getDescription());
-        });
+    private Image loadLogoImage() {
+        String[] candidatePaths = {"logo.jpg", "Logo.jpg", "Visual Tizita Logo 2.jpg", "src/main/resources/logo.jpg", "src/main/resources/Visual Tizita Logo 2.jpg"};
+        for (String path : candidatePaths) {
+            File f = new File(path);
+            if (f.exists()) return new Image(f.toURI().toString());
+        }
+        InputStream stream = getClass().getResourceAsStream("/logo.jpg");
+        return stream != null ? new Image(stream) : null;
     }
 
     private void loadFromCsv() {
         allTransactions.clear();
         File file = new File("transactions.csv");
         if (!file.exists()) return;
-
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -782,57 +1037,116 @@ public class LedgerGUI extends Application {
         }
     }
 
-    private VBox createKpiCard(String labelText, Label valueLabel, String accentHex) {
+    private VBox createExecutiveKpiCard(String labelText, Label valueLabel, Label subLabel, String accentHex, String badgeBgRgba) {
         VBox card = new VBox(6);
-        card.setPadding(new Insets(14, 18, 14, 18));
-        card.setStyle("-fx-background-color: #111827; -fx-background-radius: 12; -fx-border-color: #26221a; -fx-border-radius: 12;");
+        card.setPadding(new Insets(16, 20, 16, 20));
+        card.setStyle("-fx-background-color: linear-gradient(to bottom right, #121A2B, #0E1525); -fx-background-radius: 14; -fx-border-color: #1E2B45; -fx-border-radius: 14;");
+        card.setEffect(new DropShadow(18, 0, 6, Color.rgb(0, 0, 0, 0.35)));
 
+        HBox topRow = new HBox();
+        topRow.setAlignment(Pos.CENTER_LEFT);
         Label title = new Label(labelText);
-        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11));
-        title.setTextFill(Color.web("#9ca3af"));
+        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
+        title.setTextFill(Color.web("#94A3B8"));
 
-        valueLabel.setFont(Font.font("Segoe UI", FontWeight.EXTRA_BOLD, 22));
+        Region sp = new Region();
+        HBox.setHgrow(sp, Priority.ALWAYS);
+
+        Region dot = new Region();
+        dot.setPrefSize(10, 10);
+        dot.setStyle("-fx-background-color: " + accentHex + "; -fx-background-radius: 5;");
+        topRow.getChildren().addAll(title, sp, dot);
+
+        valueLabel.setFont(Font.font("Segoe UI", FontWeight.EXTRA_BOLD, 25));
         valueLabel.setTextFill(Color.web(accentHex));
 
-        card.getChildren().addAll(title, valueLabel);
+        subLabel.setFont(Font.font("Segoe UI", 11));
+        subLabel.setTextFill(Color.web("#64748B"));
+
+        card.getChildren().addAll(topRow, valueLabel, subLabel);
         return card;
     }
 
-    private Button createActionButton(String text, String bgHex, String borderHex) {
+    private Button createPrimaryCtaButton(String text, boolean isDeposit) {
         Button btn = new Button(text);
         btn.setMaxWidth(Double.MAX_VALUE);
-        btn.setAlignment(Pos.CENTER);
-        btn.setStyle(String.format(
-                "-fx-background-color: %s; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 13px; " +
-                        "-fx-padding: 9 14; -fx-background-radius: 8; -fx-border-color: %s; -fx-border-radius: 8; -fx-cursor: hand;",
-                bgHex, borderHex));
+        String base = isDeposit
+                ? "-fx-background-color: linear-gradient(to bottom, #10B981, #059669); -fx-text-fill: #04130E; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 9 12; -fx-background-radius: 8; -fx-cursor: hand;"
+                : "-fx-background-color: #162033; -fx-text-fill: #F87171; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 9 12; -fx-background-radius: 8; -fx-border-color: rgba(248,113,113,0.35); -fx-border-radius: 8; -fx-cursor: hand;";
+        String hover = isDeposit
+                ? "-fx-background-color: #34D399; -fx-text-fill: #04130E; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 9 12; -fx-background-radius: 8; -fx-cursor: hand;"
+                : "-fx-background-color: rgba(248,113,113,0.18); -fx-text-fill: #FCA5A5; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 9 12; -fx-background-radius: 8; -fx-border-color: #F87171; -fx-border-radius: 8; -fx-cursor: hand;";
+        btn.setStyle(base);
+        btn.setOnMouseEntered(e -> btn.setStyle(hover));
+        btn.setOnMouseExited(e -> btn.setStyle(base));
         return btn;
     }
 
-    private Button createNavButton(String text) {
+    private Button createSegmentButton(String text, boolean active) {
+        Button b = new Button(text);
+        styleSegmentButton(b, active);
+        return b;
+    }
+
+    private void styleSegmentButton(Button b, boolean active) {
+        if (active) {
+            b.setStyle("-fx-background-color: #182338; -fx-text-fill: #D4AF37; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 7 18; -fx-background-radius: 7; -fx-border-color: rgba(212,175,55,0.35); -fx-border-radius: 7; -fx-cursor: hand;");
+        } else {
+            b.setStyle("-fx-background-color: transparent; -fx-text-fill: #94A3B8; -fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 7 18; -fx-background-radius: 7; -fx-cursor: hand;");
+        }
+    }
+
+    private Button createNavButton(String text, boolean initialActive) {
         Button btn = new Button(text);
         btn.setMaxWidth(Double.MAX_VALUE);
         btn.setAlignment(Pos.CENTER_LEFT);
-        btn.setStyle("-fx-background-color: #111827; -fx-text-fill: #e5e7eb; -fx-font-size: 13px; " +
-                "-fx-padding: 8 12; -fx-background-radius: 7; -fx-border-color: #1f2937; -fx-border-radius: 7; -fx-cursor: hand;");
-        btn.setOnMouseEntered(e -> btn.setStyle("-fx-background-color: #1f2937; -fx-text-fill: #d4af37; -fx-font-size: 13px; -fx-padding: 8 12; -fx-background-radius: 7; -fx-border-color: #d4af37; -fx-border-radius: 7; -fx-cursor: hand;"));
-        btn.setOnMouseExited(e -> btn.setStyle("-fx-background-color: #111827; -fx-text-fill: #e5e7eb; -fx-font-size: 13px; -fx-padding: 8 12; -fx-background-radius: 7; -fx-border-color: #1f2937; -fx-border-radius: 7; -fx-cursor: hand;"));
+        sidebarNavButtons.add(btn);
+        applyNavStyle(btn, initialActive);
+        btn.setOnMouseEntered(e -> {
+            if (!Boolean.TRUE.equals(btn.getUserData())) {
+                btn.setStyle("-fx-background-color: #11192B; -fx-text-fill: #F8FAFC; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 8 12; -fx-background-radius: 8; -fx-cursor: hand;");
+            }
+        });
+        btn.setOnMouseExited(e -> applyNavStyle(btn, Boolean.TRUE.equals(btn.getUserData())));
         return btn;
+    }
+
+    private void setActiveNav(Button activeBtn) {
+        for (Button b : sidebarNavButtons) {
+            applyNavStyle(b, b == activeBtn);
+        }
+    }
+
+    private void applyNavStyle(Button btn, boolean active) {
+        btn.setUserData(active);
+        if (active) {
+            btn.setStyle("-fx-background-color: rgba(212,175,55,0.14); -fx-text-fill: #D4AF37; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 8 12; -fx-background-radius: 8; -fx-border-color: rgba(212,175,55,0.35); -fx-border-radius: 8; -fx-cursor: hand;");
+        } else {
+            btn.setStyle("-fx-background-color: transparent; -fx-text-fill: #94A3B8; -fx-font-size: 12px; -fx-padding: 8 12; -fx-background-radius: 8; -fx-cursor: hand;");
+        }
+    }
+
+    private Region createSubtleDivider() {
+        Region r = new Region();
+        r.setPrefHeight(1);
+        r.setMaxWidth(Double.MAX_VALUE);
+        r.setStyle("-fx-background-color: #141D2E;");
+        VBox.setMargin(r, new Insets(4, 0, 4, 0));
+        return r;
     }
 
     private Label createSectionHeader(String text) {
         Label lbl = new Label(text);
-        lbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
-        lbl.setTextFill(Color.web("#d4af37"));
-        lbl.setPadding(new Insets(4, 0, 2, 4));
+        lbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 9));
+        lbl.setTextFill(Color.web("#475569"));
+        lbl.setPadding(new Insets(6, 0, 2, 6));
         return lbl;
     }
 
     private TextField createStyledTextField(String prompt) {
         TextField tf = new TextField();
         tf.setPromptText(prompt);
-        tf.setStyle("-fx-background-color: #1f2937; -fx-text-fill: #f9fafb; -fx-prompt-text-fill: #6b7280; " +
-                "-fx-background-radius: 6; -fx-border-color: #374151; -fx-border-radius: 6; -fx-padding: 5 10;");
+        tf.getStyleClass().add("dark-field");
         return tf;
     }
 
@@ -844,79 +1158,157 @@ public class LedgerGUI extends Application {
         alert.showAndWait();
     }
 
-    private String createDarkStylesheet() {
+    private String createEnterpriseStylesheet() {
         String css = """
-                .tab-pane .tab-header-area .tab-header-background {
-                    -fx-background-color: #000000;
+                .root {
+                    -fx-base: #0B0F19;
+                    -fx-background: #0B0F19;
+                    -fx-control-inner-background: #131C2E;
+                    -fx-control-inner-background-alt: #0E1626;
+                    -fx-focus-color: #D4AF37;
+                    -fx-faint-focus-color: transparent;
                 }
-                .tab-pane .tab {
-                    -fx-background-color: #111827;
-                    -fx-padding: 8 16;
-                    -fx-background-radius: 6 6 0 0;
-                    -fx-border-color: #26221a;
-                }
-                .tab-pane .tab:selected {
-                    -fx-background-color: #1f2937;
-                    -fx-border-color: #d4af37;
-                }
-                .tab .tab-label {
-                    -fx-text-fill: #e5e7eb;
-                    -fx-font-weight: bold;
-                    -fx-font-size: 12px;
-                }
-                .tab:selected .tab-label {
-                    -fx-text-fill: #d4af37;
-                }
-                .table-view {
-                    -fx-background-color: #111827;
-                    -fx-border-color: #26221a;
-                    -fx-border-radius: 10;
-                    -fx-background-radius: 10;
-                }
-                .table-view .column-header-background {
-                    -fx-background-color: #161e2e;
-                }
-                .table-view .column-header, .table-view .filler {
+                .edge-to-edge-scroll, .edge-to-edge-scroll > .viewport {
                     -fx-background-color: transparent;
-                    -fx-size: 36px;
-                    -fx-border-color: #26221a;
+                }
+                /* Fix glaring white TextFields, ComboBoxes & DatePickers */
+                .dark-field, .dark-combo, .dark-datepicker {
+                    -fx-background-color: #151F33;
+                    -fx-text-fill: #F8FAFC;
+                    -fx-prompt-text-fill: #64748B;
+                    -fx-background-radius: 8;
+                    -fx-border-color: #24324D;
+                    -fx-border-radius: 8;
+                    -fx-padding: 6 10;
+                }
+                .dark-field:focused, .dark-combo:focused, .dark-datepicker:focused {
+                    -fx-border-color: #D4AF37;
+                    -fx-background-color: #18243B;
+                }
+                .combo-box-base > .text-field, .date-picker > .text-field {
+                    -fx-background-color: transparent;
+                    -fx-text-fill: #F8FAFC;
+                    -fx-prompt-text-fill: #64748B;
+                }
+                .combo-box-base > .arrow-button, .date-picker > .arrow-button {
+                    -fx-background-color: #1C2942;
+                    -fx-background-radius: 0 7 7 0;
+                }
+                .combo-box-base > .arrow-button > .arrow, .date-picker > .arrow-button > .arrow {
+                    -fx-background-color: #D4AF37;
+                }
+                .combo-box-popup .list-view {
+                    -fx-background-color: #101726;
+                    -fx-border-color: #24324D;
+                }
+                .combo-box-popup .list-cell {
+                    -fx-background-color: #101726;
+                    -fx-text-fill: #E2E8F0;
+                    -fx-padding: 7 12;
+                }
+                .combo-box-popup .list-cell:hover, .combo-box-popup .list-cell:selected {
+                    -fx-background-color: #1E2C46;
+                    -fx-text-fill: #D4AF37;
+                }
+                /* Fix white ProgressBar track */
+                .fintech-progress > .track {
+                    -fx-background-color: #1A2438;
+                    -fx-background-radius: 6;
+                }
+                .fintech-progress > .bar {
+                    -fx-background-color: linear-gradient(to right, #10B981, #D4AF37);
+                    -fx-background-radius: 6;
+                    -fx-background-insets: 0;
+                }
+                /* Modern Borderless Enterprise Table */
+                .enterprise-table {
+                    -fx-background-color: #101726;
+                    -fx-background-radius: 12;
+                    -fx-border-color: #1C283E;
+                    -fx-border-radius: 12;
+                    -fx-padding: 0;
+                    -fx-table-cell-border-color: transparent;
+                }
+                .enterprise-table .column-header-background {
+                    -fx-background-color: #0D1320;
+                    -fx-background-radius: 12 12 0 0;
+                    -fx-border-color: #1C283E;
                     -fx-border-width: 0 0 1 0;
                 }
-                .table-view .column-header .label {
-                    -fx-text-fill: #d4af37;
+                .enterprise-table .column-header, .enterprise-table .filler {
+                    -fx-background-color: transparent;
+                    -fx-size: 40px;
+                    -fx-border-color: transparent;
+                }
+                .enterprise-table .column-header .label {
+                    -fx-text-fill: #64748B;
                     -fx-font-weight: bold;
-                    -fx-font-size: 12px;
-                }
-                .table-row-cell {
-                    -fx-background-color: #111827;
-                    -fx-border-color: #1f2937;
-                    -fx-border-width: 0 0 1 0;
-                    -fx-cell-size: 35px;
-                }
-                .table-row-cell:odd {
-                    -fx-background-color: #0d1320;
-                }
-                .table-row-cell:selected {
-                    -fx-background-color: #2e2618;
-                }
-                .table-cell {
-                    -fx-text-fill: #e5e7eb;
-                    -fx-font-size: 13px;
+                    -fx-font-size: 10px;
                     -fx-alignment: CENTER-LEFT;
                 }
+                .enterprise-table .table-row-cell {
+                    -fx-background-color: #101726;
+                    -fx-border-color: #162033;
+                    -fx-border-width: 0 0 1 0;
+                    -fx-cell-size: 44px;
+                }
+                .enterprise-table .table-row-cell:odd {
+                    -fx-background-color: #0E1523;
+                }
+                .enterprise-table .table-row-cell:hover {
+                    -fx-background-color: #162238;
+                }
+                .enterprise-table .table-row-cell:selected {
+                    -fx-background-color: #1D2B45;
+                }
+                .enterprise-table .table-cell {
+                    -fx-border-color: transparent;
+                    -fx-padding: 0 12 0 12;
+                    -fx-alignment: CENTER-LEFT;
+                }
+                .enterprise-table .corner {
+                    -fx-background-color: #0D1320;
+                }
+                /* Sleek Dark Scrollbars (Eliminates glaring white scrollbars) */
+                .scroll-bar:vertical, .scroll-bar:horizontal {
+                    -fx-background-color: transparent;
+                }
+                .scroll-bar .track {
+                    -fx-background-color: #0B0F19;
+                    -fx-background-radius: 4;
+                }
+                .scroll-bar .thumb {
+                    -fx-background-color: #24324D;
+                    -fx-background-radius: 4;
+                }
+                .scroll-bar .thumb:hover {
+                    -fx-background-color: #D4AF37;
+                }
+                .scroll-bar .increment-button, .scroll-bar .decrement-button {
+                    -fx-background-color: transparent;
+                    -fx-padding: 0;
+                }
+                .scroll-bar .increment-arrow, .scroll-bar .decrement-arrow {
+                    -fx-shape: " ";
+                    -fx-padding: 0;
+                }
                 .context-menu {
-                    -fx-background-color: #111827;
-                    -fx-border-color: #26221a;
-                    -fx-background-radius: 8;
-                    -fx-border-radius: 8;
+                    -fx-background-color: #101726;
+                    -fx-border-color: #263552;
+                    -fx-background-radius: 10;
+                    -fx-border-radius: 10;
                 }
-                .menu-item:hover {
-                    -fx-background-color: #1f2937;
+                .menu-item .label {
+                    -fx-text-fill: #F8FAFC;
                 }
-                .separator *.line {
-                    -fx-border-color: #26221a;
-                    -fx-border-width: 1 0 0 0;
+                .menu-item:focused {
+                    -fx-background-color: #1E2C46;
                 }
+                .chart-pie-label { -fx-fill: #F8FAFC; }
+                .chart-legend { -fx-background-color: transparent; }
+                .chart-legend-item { -fx-text-fill: #F8FAFC; }
+                .axis { -fx-tick-label-fill: #94A3B8; }
+                .chart-plot-background { -fx-background-color: #0D1322; }
                 """;
         return "data:text/css;base64," + Base64.getEncoder().encodeToString(css.getBytes(StandardCharsets.UTF_8));
     }
